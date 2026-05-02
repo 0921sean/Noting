@@ -1,27 +1,21 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../config.dart';
 import '../models/note.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class ClassifierService {
   static const _endpoint = 'https://api.anthropic.com/v1/messages';
   static const _model = 'claude-haiku-4-5-20251001';
-  static const _validCategories = ['idea', 'todo', 'thought'];
+  static const _valid = ['idea', 'todo', 'thought'];
 
-  static Future<String?> getApiKey() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('anthropic_api_key');
-  }
-
-  /// Returns 'idea', 'todo', or 'thought'. Returns null if API key is missing.
-  static Future<String?> classify(String content, String apiKey) async {
-    if (apiKey.isEmpty) return null;
+  /// Returns 'idea', 'todo', or 'thought'. Returns null on failure.
+  static Future<String?> classify(String content) async {
     try {
       final resp = await http
           .post(
             Uri.parse(_endpoint),
             headers: {
-              'x-api-key': apiKey,
+              'x-api-key': kAnthropicApiKey,
               'anthropic-version': '2023-06-01',
               'content-type': 'application/json',
             },
@@ -45,24 +39,20 @@ class ClassifierService {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         final text =
             ((data['content'] as List).first['text'] as String).trim().toLowerCase();
-        if (_validCategories.contains(text)) return text;
+        if (_valid.contains(text)) return text;
       }
     } catch (_) {}
     return 'thought';
   }
 
-  /// Classifies all given notes and calls [onClassified] for each result.
   static Future<void> reclassifyAll({
-    required String apiKey,
     required List<Note> notes,
     required void Function(int id, String category) onClassified,
   }) async {
     for (final note in notes) {
       if (note.id == null) continue;
-      final category = await classify(note.content, apiKey);
-      if (category != null) {
-        onClassified(note.id!, category);
-      }
+      final category = await classify(note.content);
+      if (category != null) onClassified(note.id!, category);
     }
   }
 }

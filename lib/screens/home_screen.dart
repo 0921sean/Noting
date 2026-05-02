@@ -167,9 +167,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _classifyInBackground(Note note) {
-    ClassifierService.getApiKey().then((apiKey) async {
-      if (apiKey == null || apiKey.isEmpty) return;
-      final category = await ClassifierService.classify(note.content, apiKey);
+    ClassifierService.classify(note.content).then((category) async {
       if (category == null || note.id == null) return;
       await DatabaseHelper.instance.updateCategory(note.id!, category);
       if (!mounted) return;

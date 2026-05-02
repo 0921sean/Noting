@@ -10,332 +10,425 @@ class TodoScreen extends StatefulWidget {
 }
 
 class _TodoScreenState extends State<TodoScreen> {
-  final Map<String, List<Todo>> _byDate = {};
-  final List<String> _dates = [];
+  static const _kBase = 10000;
+  static const _dayLabels = ['일', '월', '화', '수', '목', '금', '토'];
+
+  late final PageController _pageController;
+  DateTime _selectedDate = _today();
+  Map<String, List<Todo>> _byDate = {};
   bool _loading = true;
-  String? _addingForDate;
-  String? _editingTodoId; // 'date:id'
+
   final _addController = TextEditingController();
-  final _editController = TextEditingController();
   final _addFocus = FocusNode();
+  String? _editingId;
+  final _editController = TextEditingController();
   final _editFocus = FocusNode();
 
-  static String _todayKey() {
-    final now = DateTime.now();
-    return '${now.year}-${_p(now.month)}-${_p(now.day)}';
+  // ─── 날짜 유틸 ──────────────────────────────────────────────────────────────
+  static DateTime _today() {
+    final n = DateTime.now();
+    return DateTime(n.year, n.month, n.day);
   }
 
-  static String _tomorrowKey() {
-    final tm = DateTime.now().add(const Duration(days: 1));
-    return '${tm.year}-${_p(tm.month)}-${_p(tm.day)}';
-  }
+  static DateTime _sundayOfWeek(DateTime d) =>
+      d.subtract(Duration(days: d.weekday % 7));
 
-  static String _p(int v) => v.toString().padLeft(2, '0');
+  static String _key(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
 
-  static String _label(String key) {
-    final today = _todayKey();
-    final tomorrow = _tomorrowKey();
-    if (key == today) return '오늘';
-    if (key == tomorrow) return '내일';
-    final dt = DateTime.parse(key);
-    const days = ['월', '화', '수', '목', '금', '토', '일'];
-    return '${dt.month}월 ${dt.day}일 (${days[dt.weekday - 1]})';
-  }
+  String get _selKey => _key(_selectedDate);
+  List<Todo> get _selTodos => _byDate[_selKey] ?? [];
 
+  // ─── 라이프사이클 ────────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: _kBase);
     _load();
   }
 
   @override
   void dispose() {
+    _pageController.dispose();
     _addController.dispose();
-    _editController.dispose();
     _addFocus.dispose();
+    _editController.dispose();
     _editFocus.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     final todos = await DatabaseHelper.instance.readAllTodos();
-    final byDate = <String, List<Todo>>{};
+    final map = <String, List<Todo>>{};
     for (final t in todos) {
-      byDate.putIfAbsent(t.date, () => []).add(t);
+      map.putIfAbsent(t.date, () => []).add(t);
     }
-    final allDates = <String>{_todayKey(), _tomorrowKey(), ...byDate.keys};
-    final sorted = allDates.toList()..sort();
-
     if (!mounted) return;
     setState(() {
-      _byDate
-        ..clear()
-        ..addAll(byDate);
-      _dates
-        ..clear()
-        ..addAll(sorted);
+      _byDate = map;
       _loading = false;
     });
   }
 
-  Future<void> _addTodo(String date) async {
-    final text = _addController.text.trim();
-    _addController.clear();
-    setState(() => _addingForDate = null);
-    if (text.isEmpty) return;
-
-    final todo = await DatabaseHelper.instance.createTodo(text, date);
-    if (!mounted) return;
-    setState(() => _byDate.putIfAbsent(date, () => []).add(todo));
+  // ─── 주간 캘린더 계산 ─────────────────────────────────────────────────────
+  DateTime _weekStart(int page) {
+    final base = _sundayOfWeek(_today());
+    return base.add(Duration(days: (page - _kBase) * 7));
   }
 
-  Future<void> _toggleDone(String date, Todo todo) async {
+  int _pageForDate(DateTime date) {
+    final base = _sundayOfWeek(_today());
+    final ds = _sundayOfWeek(date);
+    return _kBase + ds.difference(base).inDays ~/ 7;
+  }
+
+  void _onPageChanged(int page) {
+    final ws = _weekStart(page);
+    final dow = _selectedDate.weekday % 7; // 0=일
+    setState(() => _selectedDate = ws.add(Duration(days: dow)));
+  }
+
+  void _selectDay(DateTime day) {
+    final page = _pageForDate(day);
+    final cur = _pageController.page?.round() ?? _kBase;
+    if (page != cur) {
+      _pageController.animateToPage(
+        page,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeInOut,
+      );
+    }
+    setState(() => _selectedDate = day);
+  }
+
+  // ─── 투두 CRUD ───────────────────────────────────────────────────────────────
+  Future<void> _addTodo() async {
+    final text = _addController.text.trim();
+    if (text.isEmpty) return;
+    _addController.clear();
+    final todo = await DatabaseHelper.instance.createTodo(text, _selKey);
+    if (!mounted) return;
+    setState(() => _byDate.putIfAbsent(_selKey, () => []).add(todo));
+  }
+
+  Future<void> _toggleDone(Todo todo) async {
     await DatabaseHelper.instance.updateTodoDone(todo.id!, !todo.done);
     if (!mounted) return;
     setState(() {
-      final list = _byDate[date];
+      final list = _byDate[todo.date];
       if (list == null) return;
-      final idx = list.indexWhere((t) => t.id == todo.id);
-      if (idx != -1) list[idx] = todo.copyWith(done: !todo.done);
+      final i = list.indexWhere((t) => t.id == todo.id);
+      if (i != -1) list[i] = todo.copyWith(done: !todo.done);
     });
   }
 
-  Future<void> _saveEdit(String date, Todo todo) async {
+  Future<void> _saveEdit(Todo todo) async {
     final text = _editController.text.trim();
-    setState(() => _editingTodoId = null);
+    setState(() => _editingId = null);
     if (text.isEmpty || text == todo.text) return;
-
     await DatabaseHelper.instance.updateTodoText(todo.id!, text);
     if (!mounted) return;
     setState(() {
-      final list = _byDate[date];
+      final list = _byDate[todo.date];
       if (list == null) return;
-      final idx = list.indexWhere((t) => t.id == todo.id);
-      if (idx != -1) list[idx] = todo.copyWith(text: text);
+      final i = list.indexWhere((t) => t.id == todo.id);
+      if (i != -1) list[i] = todo.copyWith(text: text);
     });
   }
 
-  Future<void> _deleteTodo(String date, Todo todo) async {
+  Future<void> _deleteTodo(Todo todo) async {
     await DatabaseHelper.instance.deleteTodo(todo.id!);
     if (!mounted) return;
-    setState(() => _byDate[date]?.removeWhere((t) => t.id == todo.id));
-  }
-
-  Future<void> _addDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().add(const Duration(days: 2)),
-      firstDate: DateTime.now().subtract(const Duration(days: 365)),
-      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
-      helpText: '날짜 선택',
-    );
-    if (picked == null) return;
-    final key =
-        '${picked.year}-${_p(picked.month)}-${_p(picked.day)}';
-    if (!_dates.contains(key)) {
-      setState(() {
-        _dates.add(key);
-        _dates.sort();
-      });
-    }
+    setState(() => _byDate[todo.date]?.removeWhere((t) => t.id == todo.id));
   }
 
   // ─── 빌드 ──────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
-
     return GestureDetector(
       onTap: () {
-        // 외부 탭 시 입력 필드 닫기
-        if (_addingForDate != null) _addTodo(_addingForDate!);
-        if (_editingTodoId != null) setState(() => _editingTodoId = null);
+        FocusScope.of(context).unfocus();
+        if (_editingId != null) setState(() => _editingId = null);
       },
       behavior: HitTestBehavior.translucent,
-      child: ListView.builder(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 80),
-        itemCount: _dates.length + 1,
-        itemBuilder: (_, i) {
-          if (i == _dates.length) return _buildAddDateBtn();
-          return _buildSection(_dates[i]);
-        },
-      ),
-    );
-  }
-
-  Widget _buildSection(String date) {
-    final todos = _byDate[date] ?? [];
-    final isAdding = _addingForDate == date;
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 28),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 날짜 헤더
-          Row(
-            children: [
-              Text(
-                _label(date),
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.primary,
-                  letterSpacing: 0.3,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                '${todos.where((t) => !t.done).length}개',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.35),
-                ),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _addingForDate = date;
-                    _editingTodoId = null;
-                  });
-                  WidgetsBinding.instance.addPostFrameCallback(
-                      (_) => _addFocus.requestFocus());
-                },
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Icon(
-                    Icons.add,
-                    size: 18,
-                    color: Theme.of(context).colorScheme.primary.withOpacity(0.7),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Divider(
-              height: 1,
-              thickness: 0.5,
-              color: Theme.of(context).dividerColor),
-          const SizedBox(height: 6),
-
-          // 할 일 목록
-          ...todos.map((t) => _buildTodoItem(date, t)),
-
-          // 추가 입력창
-          if (isAdding)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: Row(
-                children: [
-                  _buildCheckbox(false),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _addController,
-                      focusNode: _addFocus,
-                      textInputAction: TextInputAction.done,
-                      keyboardType: TextInputType.multiline,
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: Theme.of(context).colorScheme.onSurface,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: '할 일 입력...',
-                        hintStyle: TextStyle(
-                          fontSize: 15,
-                          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
-                        ),
-                        border: InputBorder.none,
-                        contentPadding: EdgeInsets.zero,
-                        isDense: true,
-                      ),
-                      onSubmitted: (_) => _addTodo(date),
-                    ),
-                  ),
-                  IconButton(
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-                    icon: Icon(Icons.check_rounded,
-                        size: 18,
-                        color: Theme.of(context).colorScheme.primary),
-                    onPressed: () => _addTodo(date),
-                  ),
-                ],
-              ),
-            ),
+          _buildMonthHeader(),
+          _buildWeekPager(),
+          _buildDateBar(),
+          Divider(height: 1, thickness: 0.5, color: Theme.of(context).dividerColor),
+          if (_loading)
+            const Expanded(child: Center(child: CircularProgressIndicator()))
+          else
+            Expanded(child: _buildTodoList()),
+          _buildAddBar(),
         ],
       ),
     );
   }
 
-  Widget _buildTodoItem(String date, Todo todo) {
-    final editKey = '$date:${todo.id}';
-    final isEditing = _editingTodoId == editKey;
+  // ─── 월 헤더 ─────────────────────────────────────────────────────────────
+  Widget _buildMonthHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left, size: 22),
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+            onPressed: () => _pageController.previousPage(
+              duration: const Duration(milliseconds: 280),
+              curve: Curves.easeInOut,
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: Text(
+                '${_selectedDate.year}년 ${_selectedDate.month}월',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.chevron_right, size: 22),
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+            onPressed: () => _pageController.nextPage(
+              duration: const Duration(milliseconds: 280),
+              curve: Curves.easeInOut,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── 주간 달력 ─────────────────────────────────────────────────────────────
+  Widget _buildWeekPager() {
+    return SizedBox(
+      height: 80,
+      child: PageView.builder(
+        controller: _pageController,
+        onPageChanged: _onPageChanged,
+        itemBuilder: (_, page) => _buildWeekRow(_weekStart(page)),
+      ),
+    );
+  }
+
+  Widget _buildWeekRow(DateTime sunday) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Row(
+        children: List.generate(7, (i) {
+          final day = sunday.add(Duration(days: i));
+          final dk = _key(day);
+          final isSelected = dk == _selKey;
+          final isToday = dk == _key(_today());
+          final hasTodo = (_byDate[dk]?.any((t) => !t.done) ?? false);
+
+          final Color labelColor;
+          final Color numColor;
+          if (i == 0) {
+            labelColor = Theme.of(context).colorScheme.error.withOpacity(0.7);
+            numColor = Theme.of(context).colorScheme.error;
+          } else if (i == 6) {
+            labelColor = Colors.blue.withOpacity(0.65);
+            numColor = Colors.blue;
+          } else {
+            labelColor = Theme.of(context).colorScheme.onSurface.withOpacity(0.4);
+            numColor = Theme.of(context).colorScheme.onSurface;
+          }
+
+          return Expanded(
+            child: GestureDetector(
+              onTap: () => _selectDay(day),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    _dayLabels[i],
+                    style: TextStyle(fontSize: 11, color: labelColor),
+                  ),
+                  const SizedBox(height: 6),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isSelected
+                          ? Theme.of(context).colorScheme.primary
+                          : Colors.transparent,
+                      border: isToday && !isSelected
+                          ? Border.all(
+                              color: Theme.of(context).colorScheme.primary,
+                              width: 1.5,
+                            )
+                          : null,
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${day.day}',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: isSelected || isToday
+                              ? FontWeight.w700
+                              : FontWeight.w400,
+                          color: isSelected ? Colors.white : numColor,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 4,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: hasTodo
+                          ? (isSelected
+                              ? Colors.white.withOpacity(0.8)
+                              : Theme.of(context).colorScheme.primary.withOpacity(0.55))
+                          : Colors.transparent,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+
+  // ─── 날짜 제목 + 완료 통계 ──────────────────────────────────────────────────
+  Widget _buildDateBar() {
+    final todos = _selTodos;
+    final done = todos.where((t) => t.done).length;
+    final total = todos.length;
+
+    final todayKey = _key(_today());
+    final tomorrowKey = _key(_today().add(const Duration(days: 1)));
+    const weekdayKo = ['월', '화', '수', '목', '금', '토', '일'];
+    final wd = weekdayKo[_selectedDate.weekday - 1];
+
+    final String prefix = _selKey == todayKey
+        ? '오늘 · '
+        : _selKey == tomorrowKey
+            ? '내일 · '
+            : '';
+    final dateStr = '$prefix${_selectedDate.month}월 ${_selectedDate.day}일 ${wd}요일'; // ignore: unnecessary_brace_in_string_interps
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+      child: Row(
+        children: [
+          Text(dateStr,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface,
+              )),
+          if (total > 0) ...[
+            const SizedBox(width: 8),
+            Text('$done/$total 완료',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.38),
+                )),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ─── 투두 리스트 ─────────────────────────────────────────────────────────────
+  Widget _buildTodoList() {
+    final todos = _selTodos;
+    if (todos.isEmpty) {
+      return Center(
+        child: Text('할 일을 추가해봐요',
+            style: TextStyle(
+              fontSize: 14,
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.28),
+            )),
+      );
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+      itemCount: todos.length,
+      itemBuilder: (_, i) => _buildItem(todos[i]),
+    );
+  }
+
+  Widget _buildItem(Todo todo) {
+    final eid = '${todo.date}:${todo.id}';
+    final isEditing = _editingId == eid;
 
     return Dismissible(
       key: ValueKey('todo-${todo.id}'),
       direction: DismissDirection.endToStart,
       background: Container(
         alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 16),
+        padding: const EdgeInsets.only(right: 8),
         child: Icon(Icons.delete_outline,
             size: 18,
-            color: Theme.of(context).colorScheme.error.withOpacity(0.6)),
+            color: Theme.of(context).colorScheme.error.withOpacity(0.55)),
       ),
-      onDismissed: (_) => _deleteTodo(date, todo),
+      onDismissed: (_) => _deleteTodo(todo),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+        padding: const EdgeInsets.symmetric(vertical: 9),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             GestureDetector(
-              onTap: () => _toggleDone(date, todo),
-              child: _buildCheckbox(todo.done),
+              onTap: () => _toggleDone(todo),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 1),
+                child: _buildCircleCheck(todo.done),
+              ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             Expanded(
               child: isEditing
-                  ? Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _editController,
-                            focusNode: _editFocus,
-                            textInputAction: TextInputAction.done,
-                            keyboardType: TextInputType.multiline,
-                            style: TextStyle(
-                              fontSize: 15,
-                              color: Theme.of(context).colorScheme.onSurface,
-                            ),
-                            decoration: const InputDecoration(
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.zero,
-                              isDense: true,
-                            ),
-                            onSubmitted: (_) => _saveEdit(date, todo),
+                  ? Row(children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _editController,
+                          focusNode: _editFocus,
+                          autofocus: true,
+                          textInputAction: TextInputAction.done,
+                          keyboardType: TextInputType.multiline,
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                          onSubmitted: (_) => _saveEdit(todo),
                         ),
-                        IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints:
-                              const BoxConstraints(minWidth: 32, minHeight: 32),
-                          icon: Icon(Icons.check_rounded,
-                              size: 18,
+                      ),
+                      GestureDetector(
+                        onTap: () => _saveEdit(todo),
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 8),
+                          child: Icon(Icons.check_rounded,
+                              size: 20,
                               color: Theme.of(context).colorScheme.primary),
-                          onPressed: () => _saveEdit(date, todo),
                         ),
-                      ],
-                    )
+                      ),
+                    ])
                   : GestureDetector(
                       onLongPress: () {
                         _editController.text = todo.text;
-                        setState(() {
-                          _editingTodoId = editKey;
-                          _addingForDate = null;
-                        });
+                        setState(() => _editingId = eid);
                         WidgetsBinding.instance.addPostFrameCallback(
                             (_) => _editFocus.requestFocus());
                       },
@@ -343,23 +436,17 @@ class _TodoScreenState extends State<TodoScreen> {
                         todo.text,
                         style: TextStyle(
                           fontSize: 15,
-                          height: 1.4,
+                          height: 1.45,
                           color: todo.done
-                              ? Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withOpacity(0.35)
-                              : Theme.of(context)
-                                  .colorScheme
-                                  .onSurface
-                                  .withOpacity(0.88),
+                              ? Theme.of(context).colorScheme.onSurface.withOpacity(0.3)
+                              : Theme.of(context).colorScheme.onSurface.withOpacity(0.88),
                           decoration: todo.done
                               ? TextDecoration.lineThrough
                               : TextDecoration.none,
                           decorationColor: Theme.of(context)
                               .colorScheme
                               .onSurface
-                              .withOpacity(0.35),
+                              .withOpacity(0.3),
                         ),
                       ),
                     ),
@@ -370,20 +457,18 @@ class _TodoScreenState extends State<TodoScreen> {
     );
   }
 
-  Widget _buildCheckbox(bool done) {
+  Widget _buildCircleCheck(bool done) {
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      width: 20,
-      height: 20,
+      duration: const Duration(milliseconds: 200),
+      width: 22,
+      height: 22,
       decoration: BoxDecoration(
-        color: done
-            ? Theme.of(context).colorScheme.primary
-            : Colors.transparent,
-        borderRadius: BorderRadius.circular(6),
+        shape: BoxShape.circle,
+        color: done ? Theme.of(context).colorScheme.primary : Colors.transparent,
         border: Border.all(
           color: done
               ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.onSurface.withOpacity(0.3),
+              : Theme.of(context).colorScheme.onSurface.withOpacity(0.22),
           width: 1.5,
         ),
       ),
@@ -393,28 +478,57 @@ class _TodoScreenState extends State<TodoScreen> {
     );
   }
 
-  Widget _buildAddDateBtn() {
-    return GestureDetector(
-      onTap: _addDate,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+  // ─── 하단 입력창 ────────────────────────────────────────────────────────────
+  Widget _buildAddBar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+          top: BorderSide(color: Theme.of(context).dividerColor, width: 0.5),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
         child: Row(
           children: [
-            Icon(Icons.add_circle_outline,
-                size: 16,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withOpacity(0.35)),
+            _buildCircleCheck(false),
+            const SizedBox(width: 14),
+            Expanded(
+              child: TextField(
+                controller: _addController,
+                focusNode: _addFocus,
+                textInputAction: TextInputAction.done,
+                keyboardType: TextInputType.multiline,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+                decoration: InputDecoration(
+                  hintText: '할 일 추가...',
+                  hintStyle: TextStyle(
+                    fontSize: 15,
+                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.28),
+                  ),
+                  border: InputBorder.none,
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onSubmitted: (_) => _addTodo(),
+              ),
+            ),
             const SizedBox(width: 8),
-            Text(
-              '다른 날짜 추가',
-              style: TextStyle(
-                fontSize: 14,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withOpacity(0.35),
+            GestureDetector(
+              onTap: _addTodo,
+              child: Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.arrow_upward_rounded,
+                    size: 17, color: Theme.of(context).colorScheme.onPrimary),
               ),
             ),
           ],
