@@ -70,17 +70,23 @@ class _TodoScreenState extends State<TodoScreen> {
       _byDate = map;
       _loading = false;
     });
-    _updateTodoReminder();
+    _refreshNudge();
   }
 
-  // ─── 투두 알림 ───────────────────────────────────────────────────────────────
-  void _updateTodoReminder() {
+  // ─── 투두 nudge 알림 ─────────────────────────────────────────────────────────
+  // 오늘 미완료 투두가 있으면 90분 타이머 예약, 없으면 취소.
+  // _toggleDone(완료 방향)에서 호출 시 타이머가 지금 시각 기준으로 리셋됨.
+  void _refreshNudge({bool completedNow = false}) {
     if (kIsWeb) return;
     final todayKey = _key(_today());
     if (_selKey != todayKey) return;
     final todayTodos = _byDate[todayKey] ?? [];
     final hasIncomplete = todayTodos.any((t) => !t.done);
-    NotificationService.instance.scheduleTodoReminder(hasIncomplete);
+    if (!hasIncomplete) {
+      NotificationService.instance.cancelNudge();
+    } else if (completedNow || hasIncomplete) {
+      NotificationService.instance.scheduleNudge();
+    }
   }
 
   // ─── 주간 캘린더 ─────────────────────────────────────────────────────────────
@@ -99,7 +105,7 @@ class _TodoScreenState extends State<TodoScreen> {
     final ws = _weekStart(page);
     final dow = _selectedDate.weekday % 7;
     setState(() => _selectedDate = ws.add(Duration(days: dow)));
-    _updateTodoReminder();
+    _refreshNudge();
   }
 
   void _selectDay(DateTime day) {
@@ -110,7 +116,7 @@ class _TodoScreenState extends State<TodoScreen> {
           duration: const Duration(milliseconds: 280), curve: Curves.easeInOut);
     }
     setState(() => _selectedDate = day);
-    _updateTodoReminder();
+    _refreshNudge();
   }
 
   // ─── 투두 CRUD ───────────────────────────────────────────────────────────────
@@ -121,19 +127,21 @@ class _TodoScreenState extends State<TodoScreen> {
     final todo = await DatabaseHelper.instance.createTodo(text, _selKey);
     if (!mounted) return;
     setState(() => _byDate.putIfAbsent(_selKey, () => []).add(todo));
-    _updateTodoReminder();
+    _refreshNudge();
   }
 
   Future<void> _toggleDone(Todo todo) async {
-    await DatabaseHelper.instance.updateTodoDone(todo.id!, !todo.done);
+    final completing = !todo.done; // true = 완료로 전환
+    await DatabaseHelper.instance.updateTodoDone(todo.id!, completing);
     if (!mounted) return;
     setState(() {
       final list = _byDate[todo.date];
       if (list == null) return;
       final i = list.indexWhere((t) => t.id == todo.id);
-      if (i != -1) list[i] = todo.copyWith(done: !todo.done);
+      if (i != -1) list[i] = todo.copyWith(done: completing);
     });
-    _updateTodoReminder();
+    // 완료 시 → 90분 타이머 리셋 (지금 이 순간부터 90분)
+    _refreshNudge(completedNow: completing);
   }
 
   Future<void> _saveEdit(Todo todo) async {
@@ -154,7 +162,7 @@ class _TodoScreenState extends State<TodoScreen> {
     await DatabaseHelper.instance.deleteTodo(todo.id!);
     if (!mounted) return;
     setState(() => _byDate[todo.date]?.removeWhere((t) => t.id == todo.id));
-    _updateTodoReminder();
+    _refreshNudge();
   }
 
   Future<bool> _confirmDelete() async {

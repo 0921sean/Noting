@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../database/database_helper.dart';
 import '../services/classifier_service.dart';
@@ -32,6 +34,95 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _minute = prefs.getInt('notif_minute') ?? 0;
       _loading = false;
     });
+  }
+
+  Future<void> _exportData() async {
+    final notes = await DatabaseHelper.instance.readAllNotes();
+    final todos = await DatabaseHelper.instance.readAllTodos();
+    final payload = jsonEncode({
+      'exported_at': DateTime.now().toIso8601String(),
+      'notes': notes.map((n) => n.toMap()).toList(),
+      'todos': todos.map((t) => t.toMap()).toList(),
+    });
+    await Clipboard.setData(ClipboardData(text: payload));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('데이터가 클립보드에 복사됐어요 (노트 ${notes.length}개, 투두 ${todos.length}개)'),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      duration: const Duration(seconds: 3),
+    ));
+  }
+
+  Future<void> _importData() async {
+    final ctrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('데이터 가져오기',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        content: TextField(
+          controller: ctrl,
+          maxLines: 5,
+          keyboardType: TextInputType.multiline,
+          decoration: InputDecoration(
+            hintText: '내보낸 JSON 데이터를 붙여넣어요',
+            hintStyle: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.35),
+                fontSize: 13),
+            filled: true,
+            fillColor: Theme.of(context).colorScheme.onSurface.withOpacity(0.05),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide.none),
+          ),
+          style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text('취소',
+                  style: TextStyle(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.5)))),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text('가져오기',
+                  style: TextStyle(
+                      color: Theme.of(context).colorScheme.primary))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      final data = jsonDecode(ctrl.text) as Map<String, dynamic>;
+      final notesRaw = (data['notes'] as List?) ?? [];
+      final todosRaw = (data['todos'] as List?) ?? [];
+      for (final n in notesRaw) {
+        await DatabaseHelper.instance.importNote(n as Map<String, dynamic>);
+      }
+      for (final t in todosRaw) {
+        await DatabaseHelper.instance.importTodo(t as Map<String, dynamic>);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('가져오기 완료 (노트 ${notesRaw.length}개, 투두 ${todosRaw.length}개)'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
+      ));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('가져오기 실패 — JSON 형식을 확인해요'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
   }
 
   Future<void> _reclassifyAll() async {
@@ -110,6 +201,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
                 children: [
+                  // 데이터 동기화
+                  const _SectionLabel(label: '데이터 동기화'),
+                  const SizedBox(height: 8),
+                  _WarmCard(
+                    children: [
+                      _WarmTile(
+                        icon: Icons.upload_outlined,
+                        title: '데이터 내보내기',
+                        subtitle: '클립보드에 JSON 복사 → 다른 기기에서 붙여넣기',
+                        onTap: _exportData,
+                      ),
+                      Divider(height: 1, thickness: 0.5,
+                          color: Theme.of(context).dividerColor),
+                      _WarmTile(
+                        icon: Icons.download_outlined,
+                        title: '데이터 가져오기',
+                        subtitle: '내보낸 JSON을 붙여넣어 동기화',
+                        onTap: _importData,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+
                   // AI 분류
                   const _SectionLabel(label: 'AI 분류'),
                   const SizedBox(height: 8),

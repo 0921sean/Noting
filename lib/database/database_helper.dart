@@ -193,6 +193,37 @@ class DatabaseHelper {
         where: 'id = ?', whereArgs: [id]);
   }
 
+  /// 내보낸 JSON map으로 노트 삽입 (id 무시, 중복 content+created_at 건너뜀)
+  Future<void> importNote(Map<String, dynamic> map) async {
+    final db = await database;
+    final existing = await db.query('notes',
+        where: 'content = ? AND created_at = ?',
+        whereArgs: [map['content'], map['created_at']]);
+    if (existing.isEmpty) {
+      await db.insert('notes', {
+        'content': map['content'],
+        'created_at': map['created_at'],
+        'category': map['category'],
+      });
+    }
+  }
+
+  Future<void> importTodo(Map<String, dynamic> map) async {
+    final db = await database;
+    final existing = await db.query('todos',
+        where: 'text = ? AND date = ? AND created_at = ?',
+        whereArgs: [map['text'], map['date'], map['created_at']]);
+    if (existing.isEmpty) {
+      await db.insert('todos', {
+        'text': map['text'],
+        'date': map['date'],
+        'done': map['done'] ?? 0,
+        'created_at': map['created_at'],
+        'order_index': map['order_index'] ?? 0,
+      });
+    }
+  }
+
   Future<void> deleteTodo(int id) async {
     final db = await database;
     await db.delete('todos', where: 'id = ?', whereArgs: [id]);

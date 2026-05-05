@@ -20,7 +20,8 @@ class NotificationService {
   static const _channelName = 'Noting 리마인드';
   static const _todoChannelId = 'noting_todo';
   static const _todoChannelName = 'Noting 투두';
-  static const _todoNotifId = 998;
+  static const _nudgeNotifId = 997;
+  static const _nudgeMinutes = 90;
   static const _channelDesc = '예전 메모를 다시 보여줍니다';
 
   Future<void> initialize() async {
@@ -149,27 +150,25 @@ class NotificationService {
 
   Future<void> cancelAll() => _plugin.cancelAll();
 
-  /// 오늘 미완료 투두가 있으면 21:00에 알림 예약. 없으면 취소.
-  Future<void> scheduleTodoReminder(bool hasIncomplete) async {
-    await _plugin.cancel(_todoNotifId);
-    if (!hasIncomplete) return;
-
+  /// 마지막 완료 시점으로부터 90분 후에 nudge 알림 예약.
+  /// 완료 시마다 호출해서 타이머를 리셋.
+  Future<void> scheduleNudge() async {
+    await _plugin.cancel(_nudgeNotifId);
     final now = tz.TZDateTime.now(tz.local);
-    final reminderTime =
-        tz.TZDateTime(tz.local, now.year, now.month, now.day, 21, 0);
-    if (reminderTime.isBefore(now)) return;
-
+    final nudgeAt = now.add(const Duration(minutes: _nudgeMinutes));
+    // 활성 시간대(09:00~22:00)에만 알림
+    if (nudgeAt.hour < 9 || nudgeAt.hour >= 22) return;
     try {
       await _plugin.zonedSchedule(
-        _todoNotifId,
-        '오늘 할 일 어때? 🤔',
-        '아직 완료 못한 할 일이 있어',
-        reminderTime,
+        _nudgeNotifId,
+        '잠깐, 하고 있어? 👀',
+        '$_nudgeMinutes분째 완료된 할 일이 없어',
+        nudgeAt,
         const NotificationDetails(
           android: AndroidNotificationDetails(
             _todoChannelId,
             _todoChannelName,
-            channelDescription: '오늘 완료 못한 할 일 알림',
+            channelDescription: '투두 미완료 nudge',
             importance: Importance.high,
             priority: Priority.high,
             visibility: NotificationVisibility.private,
@@ -186,4 +185,6 @@ class NotificationService {
       );
     } catch (_) {}
   }
+
+  Future<void> cancelNudge() async => _plugin.cancel(_nudgeNotifId);
 }
