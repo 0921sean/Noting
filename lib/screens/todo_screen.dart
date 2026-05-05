@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
 import '../models/todo.dart';
 import '../services/notification_service.dart';
+import 'planner_screen.dart';
 
 class TodoScreen extends StatefulWidget {
   const TodoScreen({super.key});
@@ -163,6 +164,108 @@ class _TodoScreenState extends State<TodoScreen> {
     if (!mounted) return;
     setState(() => _byDate[todo.date]?.removeWhere((t) => t.id == todo.id));
     _refreshNudge();
+  }
+
+  Future<void> _setTime(Todo todo) async {
+    final isSet = todo.startTime != null;
+    if (isSet) {
+      // 이미 시간 있으면 수정/삭제 메뉴
+      final action = await showModalBottomSheet<String>(
+        context: context,
+        shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 8),
+              ListTile(
+                  leading: const Icon(Icons.edit_outlined, size: 20),
+                  title: const Text('시간 변경'),
+                  onTap: () => Navigator.of(ctx).pop('edit')),
+              ListTile(
+                  leading: const Icon(Icons.delete_outline, size: 20),
+                  title: const Text('시간 삭제'),
+                  onTap: () => Navigator.of(ctx).pop('delete')),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      );
+      if (action == 'delete') {
+        await DatabaseHelper.instance.updateTodoTimes(todo.id!, null, null);
+        if (!mounted) return;
+        setState(() {
+          final list = _byDate[todo.date];
+          if (list == null) return;
+          final i = list.indexWhere((t) => t.id == todo.id);
+          if (i != -1) {
+            list[i] = todo.copyWith(
+                clearStartTime: true, clearEndTime: true);
+          }
+        });
+        return;
+      }
+      if (action != 'edit') return;
+    }
+
+    // 시작 시간 선택
+    final now = TimeOfDay.now();
+    if (!mounted) return;
+    final startPicked = await showTimePicker(
+      context: context,
+      initialTime: todo.startTime != null
+          ? TimeOfDay(
+              hour: int.parse(todo.startTime!.split(':')[0]),
+              minute: int.parse(todo.startTime!.split(':')[1]))
+          : now,
+      helpText: '시작 시간',
+    );
+    if (startPicked == null || !mounted) return;
+
+    // 종료 시간 선택
+    final endPicked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+          hour: (startPicked.hour + 1).clamp(0, 23),
+          minute: startPicked.minute),
+      helpText: '종료 시간',
+    );
+    if (!mounted) return;
+
+    final s =
+        '${startPicked.hour.toString().padLeft(2, '0')}:${startPicked.minute.toString().padLeft(2, '0')}';
+    final e = endPicked != null
+        ? '${endPicked.hour.toString().padLeft(2, '0')}:${endPicked.minute.toString().padLeft(2, '0')}'
+        : null;
+
+    await DatabaseHelper.instance.updateTodoTimes(todo.id!, s, e);
+    if (!mounted) return;
+    setState(() {
+      final list = _byDate[todo.date];
+      if (list == null) return;
+      final i = list.indexWhere((t) => t.id == todo.id);
+      if (i != -1) list[i] = todo.copyWith(startTime: s, endTime: e);
+    });
+  }
+
+  void _openPlanner() {
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PlannerScreen(
+        date: _selectedDate,
+        todos: _selTodos,
+      ),
+    ));
   }
 
   Future<bool> _confirmDelete() async {
@@ -397,7 +500,7 @@ class _TodoScreenState extends State<TodoScreen> {
         '$prefix${_selectedDate.month}월 ${_selectedDate.day}일 $wd요일';
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
+      padding: const EdgeInsets.fromLTRB(20, 14, 12, 10),
       child: Row(
         children: [
           Text(dateStr,
@@ -417,6 +520,17 @@ class _TodoScreenState extends State<TodoScreen> {
                       .withOpacity(0.38),
                 )),
           ],
+          const Spacer(),
+          IconButton(
+            icon: Icon(Icons.calendar_view_day_outlined,
+                size: 20,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurface
+                    .withOpacity(0.45)),
+            onPressed: _openPlanner,
+            tooltip: '플래너 보기',
+          ),
         ],
       ),
     );
@@ -491,6 +605,40 @@ class _TodoScreenState extends State<TodoScreen> {
             ),
             const SizedBox(width: 14),
             // 텍스트 (탭하면 편집)
+            // 시간 표시/설정 버튼
+            if (!isEditing) ...[
+              const SizedBox(width: 4),
+              GestureDetector(
+                onTap: () => _setTime(todo),
+                child: todo.startTime != null
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${todo.startTime}${todo.endTime != null ? '~${todo.endTime}' : ''}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      )
+                    : Icon(Icons.access_time_outlined,
+                        size: 16,
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.22)),
+              ),
+            ],
+            const SizedBox(width: 4),
             Expanded(
               child: isEditing
                   ? Row(children: [

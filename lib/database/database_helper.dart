@@ -20,12 +20,12 @@ class DatabaseHelper {
     if (kIsWeb) {
       databaseFactory = databaseFactoryFfiWeb;
       return await openDatabase(filePath,
-          version: 4, onCreate: _createDB, onUpgrade: _upgradeDB);
+          version: 5, onCreate: _createDB, onUpgrade: _upgradeDB);
     }
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
     return await openDatabase(path,
-        version: 4, onCreate: _createDB, onUpgrade: _upgradeDB);
+        version: 5, onCreate: _createDB, onUpgrade: _upgradeDB);
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -44,7 +44,9 @@ class DatabaseHelper {
         date TEXT NOT NULL,
         done INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL,
-        order_index INTEGER NOT NULL DEFAULT 0
+        order_index INTEGER NOT NULL DEFAULT 0,
+        start_time TEXT,
+        end_time TEXT
       )
     ''');
   }
@@ -78,6 +80,10 @@ class DatabaseHelper {
         await db.update('todos', {'order_index': i},
             where: 'id = ?', whereArgs: [rows[i]['id']]);
       }
+    }
+    if (oldVersion < 5) {
+      await db.execute('ALTER TABLE todos ADD COLUMN start_time TEXT');
+      await db.execute('ALTER TABLE todos ADD COLUMN end_time TEXT');
     }
   }
 
@@ -184,6 +190,12 @@ class DatabaseHelper {
   Future<void> updateTodoText(int id, String text) async {
     final db = await database;
     await db.update('todos', {'text': text},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateTodoTimes(int id, String? startTime, String? endTime) async {
+    final db = await database;
+    await db.update('todos', {'start_time': startTime, 'end_time': endTime},
         where: 'id = ?', whereArgs: [id]);
   }
 
