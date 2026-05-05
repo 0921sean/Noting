@@ -11,11 +11,18 @@ class Note {
     this.category,
   });
 
-  Note copyWith({int? id, String? content, DateTime? createdAt, String? category}) => Note(
+  Note copyWith({
+    int? id,
+    String? content,
+    DateTime? createdAt,
+    String? category,
+    bool clearCategory = false,
+  }) =>
+      Note(
         id: id ?? this.id,
         content: content ?? this.content,
         createdAt: createdAt ?? this.createdAt,
-        category: category ?? this.category,
+        category: clearCategory ? null : (category ?? this.category),
       );
 
   Map<String, dynamic> toMap() => {

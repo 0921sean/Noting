@@ -40,7 +40,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await ClassifierService.reclassifyAll(
       notes: notes,
       onClassified: (id, category) async =>
-          DatabaseHelper.instance.updateCategory(id, category),
+          DatabaseHelper.instance.updateNoteCategory(id, category),
     );
     if (!mounted) return;
     setState(() => _reclassifying = false);

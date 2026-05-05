@@ -18,6 +18,9 @@ class NotificationService {
 
   static const _channelId = 'noting_remind';
   static const _channelName = 'Noting 리마인드';
+  static const _todoChannelId = 'noting_todo';
+  static const _todoChannelName = 'Noting 투두';
+  static const _todoNotifId = 998;
   static const _channelDesc = '예전 메모를 다시 보여줍니다';
 
   Future<void> initialize() async {
@@ -145,4 +148,42 @@ class NotificationService {
   }
 
   Future<void> cancelAll() => _plugin.cancelAll();
+
+  /// 오늘 미완료 투두가 있으면 21:00에 알림 예약. 없으면 취소.
+  Future<void> scheduleTodoReminder(bool hasIncomplete) async {
+    await _plugin.cancel(_todoNotifId);
+    if (!hasIncomplete) return;
+
+    final now = tz.TZDateTime.now(tz.local);
+    final reminderTime =
+        tz.TZDateTime(tz.local, now.year, now.month, now.day, 21, 0);
+    if (reminderTime.isBefore(now)) return;
+
+    try {
+      await _plugin.zonedSchedule(
+        _todoNotifId,
+        '오늘 할 일 어때? 🤔',
+        '아직 완료 못한 할 일이 있어',
+        reminderTime,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _todoChannelId,
+            _todoChannelName,
+            channelDescription: '오늘 완료 못한 할 일 알림',
+            importance: Importance.high,
+            priority: Priority.high,
+            visibility: NotificationVisibility.private,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: false,
+            presentSound: true,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+    } catch (_) {}
+  }
 }

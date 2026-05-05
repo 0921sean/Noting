@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import '../database/database_helper.dart';
 import '../models/todo.dart';
+import '../services/notification_service.dart';
 
 class TodoScreen extends StatefulWidget {
   const TodoScreen({super.key});
@@ -20,7 +22,7 @@ class _TodoScreenState extends State<TodoScreen> {
 
   final _addController = TextEditingController();
   final _addFocus = FocusNode();
-  String? _editingId;
+  String? _editingId; // 'date:id'
   final _editController = TextEditingController();
   final _editFocus = FocusNode();
 
@@ -34,7 +36,7 @@ class _TodoScreenState extends State<TodoScreen> {
       d.subtract(Duration(days: d.weekday % 7));
 
   static String _key(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2,'0')}-${d.day.toString().padLeft(2,'0')}';
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
   String get _selKey => _key(_selectedDate);
   List<Todo> get _selTodos => _byDate[_selKey] ?? [];
@@ -68,9 +70,20 @@ class _TodoScreenState extends State<TodoScreen> {
       _byDate = map;
       _loading = false;
     });
+    _updateTodoReminder();
   }
 
-  // ─── 주간 캘린더 계산 ─────────────────────────────────────────────────────
+  // ─── 투두 알림 ───────────────────────────────────────────────────────────────
+  void _updateTodoReminder() {
+    if (kIsWeb) return;
+    final todayKey = _key(_today());
+    if (_selKey != todayKey) return;
+    final todayTodos = _byDate[todayKey] ?? [];
+    final hasIncomplete = todayTodos.any((t) => !t.done);
+    NotificationService.instance.scheduleTodoReminder(hasIncomplete);
+  }
+
+  // ─── 주간 캘린더 ─────────────────────────────────────────────────────────────
   DateTime _weekStart(int page) {
     final base = _sundayOfWeek(_today());
     return base.add(Duration(days: (page - _kBase) * 7));
@@ -84,21 +97,20 @@ class _TodoScreenState extends State<TodoScreen> {
 
   void _onPageChanged(int page) {
     final ws = _weekStart(page);
-    final dow = _selectedDate.weekday % 7; // 0=일
+    final dow = _selectedDate.weekday % 7;
     setState(() => _selectedDate = ws.add(Duration(days: dow)));
+    _updateTodoReminder();
   }
 
   void _selectDay(DateTime day) {
     final page = _pageForDate(day);
     final cur = _pageController.page?.round() ?? _kBase;
     if (page != cur) {
-      _pageController.animateToPage(
-        page,
-        duration: const Duration(milliseconds: 280),
-        curve: Curves.easeInOut,
-      );
+      _pageController.animateToPage(page,
+          duration: const Duration(milliseconds: 280), curve: Curves.easeInOut);
     }
     setState(() => _selectedDate = day);
+    _updateTodoReminder();
   }
 
   // ─── 투두 CRUD ───────────────────────────────────────────────────────────────
@@ -109,6 +121,7 @@ class _TodoScreenState extends State<TodoScreen> {
     final todo = await DatabaseHelper.instance.createTodo(text, _selKey);
     if (!mounted) return;
     setState(() => _byDate.putIfAbsent(_selKey, () => []).add(todo));
+    _updateTodoReminder();
   }
 
   Future<void> _toggleDone(Todo todo) async {
@@ -120,6 +133,7 @@ class _TodoScreenState extends State<TodoScreen> {
       final i = list.indexWhere((t) => t.id == todo.id);
       if (i != -1) list[i] = todo.copyWith(done: !todo.done);
     });
+    _updateTodoReminder();
   }
 
   Future<void> _saveEdit(Todo todo) async {
@@ -140,6 +154,59 @@ class _TodoScreenState extends State<TodoScreen> {
     await DatabaseHelper.instance.deleteTodo(todo.id!);
     if (!mounted) return;
     setState(() => _byDate[todo.date]?.removeWhere((t) => t.id == todo.id));
+    _updateTodoReminder();
+  }
+
+  Future<bool> _confirmDelete() async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('할 일 삭제',
+                style:
+                    TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            content: const Text('이 할 일을 삭제할까요?',
+                style: TextStyle(fontSize: 14)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: Text('취소',
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.5))),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: Text('삭제',
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.error)),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  // ─── 재정렬 ──────────────────────────────────────────────────────────────────
+  Future<void> _onReorder(int oldIndex, int newIndex) async {
+    if (newIndex > oldIndex) newIndex--;
+    final todos = List.of(_selTodos);
+    final item = todos.removeAt(oldIndex);
+    todos.insert(newIndex, item);
+
+    setState(() {
+      _byDate[_selKey] = todos;
+    });
+
+    // 배치 업데이트
+    await Future.wait(todos.asMap().entries.map(
+          (e) => DatabaseHelper.instance
+              .updateTodoOrderIndex(e.value.id!, e.key),
+        ));
   }
 
   // ─── 빌드 ──────────────────────────────────────────────────────────────────
@@ -156,7 +223,10 @@ class _TodoScreenState extends State<TodoScreen> {
           _buildMonthHeader(),
           _buildWeekPager(),
           _buildDateBar(),
-          Divider(height: 1, thickness: 0.5, color: Theme.of(context).dividerColor),
+          Divider(
+              height: 1,
+              thickness: 0.5,
+              color: Theme.of(context).dividerColor),
           if (_loading)
             const Expanded(child: Center(child: CircularProgressIndicator()))
           else
@@ -167,7 +237,7 @@ class _TodoScreenState extends State<TodoScreen> {
     );
   }
 
-  // ─── 월 헤더 ─────────────────────────────────────────────────────────────
+  // ─── 월 헤더 ─────────────────────────────────────────────────────────────────
   Widget _buildMonthHeader() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
@@ -177,9 +247,8 @@ class _TodoScreenState extends State<TodoScreen> {
             icon: const Icon(Icons.chevron_left, size: 22),
             color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
             onPressed: () => _pageController.previousPage(
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeInOut,
-            ),
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeInOut),
           ),
           Expanded(
             child: Center(
@@ -197,16 +266,15 @@ class _TodoScreenState extends State<TodoScreen> {
             icon: const Icon(Icons.chevron_right, size: 22),
             color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
             onPressed: () => _pageController.nextPage(
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeInOut,
-            ),
+                duration: const Duration(milliseconds: 280),
+                curve: Curves.easeInOut),
           ),
         ],
       ),
     );
   }
 
-  // ─── 주간 달력 ─────────────────────────────────────────────────────────────
+  // ─── 주간 달력 ───────────────────────────────────────────────────────────────
   Widget _buildWeekPager() {
     return SizedBox(
       height: 80,
@@ -227,20 +295,18 @@ class _TodoScreenState extends State<TodoScreen> {
           final dk = _key(day);
           final isSelected = dk == _selKey;
           final isToday = dk == _key(_today());
-          final hasTodo = (_byDate[dk]?.any((t) => !t.done) ?? false);
+          final hasTodo = _byDate[dk]?.any((t) => !t.done) ?? false;
 
-          final Color labelColor;
-          final Color numColor;
-          if (i == 0) {
-            labelColor = Theme.of(context).colorScheme.error.withOpacity(0.7);
-            numColor = Theme.of(context).colorScheme.error;
-          } else if (i == 6) {
-            labelColor = Colors.blue.withOpacity(0.65);
-            numColor = Colors.blue;
-          } else {
-            labelColor = Theme.of(context).colorScheme.onSurface.withOpacity(0.4);
-            numColor = Theme.of(context).colorScheme.onSurface;
-          }
+          final Color labelColor = i == 0
+              ? Theme.of(context).colorScheme.error.withOpacity(0.7)
+              : i == 6
+                  ? Colors.blue.withOpacity(0.65)
+                  : Theme.of(context).colorScheme.onSurface.withOpacity(0.4);
+          final Color numColor = i == 0
+              ? Theme.of(context).colorScheme.error
+              : i == 6
+                  ? Colors.blue
+                  : Theme.of(context).colorScheme.onSurface;
 
           return Expanded(
             child: GestureDetector(
@@ -248,10 +314,8 @@ class _TodoScreenState extends State<TodoScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    _dayLabels[i],
-                    style: TextStyle(fontSize: 11, color: labelColor),
-                  ),
+                  Text(_dayLabels[i],
+                      style: TextStyle(fontSize: 11, color: labelColor)),
                   const SizedBox(height: 6),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
@@ -265,8 +329,7 @@ class _TodoScreenState extends State<TodoScreen> {
                       border: isToday && !isSelected
                           ? Border.all(
                               color: Theme.of(context).colorScheme.primary,
-                              width: 1.5,
-                            )
+                              width: 1.5)
                           : null,
                     ),
                     child: Center(
@@ -292,7 +355,10 @@ class _TodoScreenState extends State<TodoScreen> {
                       color: hasTodo
                           ? (isSelected
                               ? Colors.white.withOpacity(0.8)
-                              : Theme.of(context).colorScheme.primary.withOpacity(0.55))
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withOpacity(0.55))
                           : Colors.transparent,
                     ),
                   ),
@@ -305,23 +371,22 @@ class _TodoScreenState extends State<TodoScreen> {
     );
   }
 
-  // ─── 날짜 제목 + 완료 통계 ──────────────────────────────────────────────────
+  // ─── 날짜 제목 ───────────────────────────────────────────────────────────────
   Widget _buildDateBar() {
     final todos = _selTodos;
     final done = todos.where((t) => t.done).length;
     final total = todos.length;
-
     final todayKey = _key(_today());
     final tomorrowKey = _key(_today().add(const Duration(days: 1)));
     const weekdayKo = ['월', '화', '수', '목', '금', '토', '일'];
     final wd = weekdayKo[_selectedDate.weekday - 1];
-
-    final String prefix = _selKey == todayKey
+    final prefix = _selKey == todayKey
         ? '오늘 · '
         : _selKey == tomorrowKey
             ? '내일 · '
             : '';
-    final dateStr = '$prefix${_selectedDate.month}월 ${_selectedDate.day}일 ${wd}요일'; // ignore: unnecessary_brace_in_string_interps
+    final dateStr =
+        '$prefix${_selectedDate.month}월 ${_selectedDate.day}일 $wd요일';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
@@ -338,7 +403,10 @@ class _TodoScreenState extends State<TodoScreen> {
             Text('$done/$total 완료',
                 style: TextStyle(
                   fontSize: 12,
-                  color: Theme.of(context).colorScheme.onSurface.withOpacity(0.38),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.38),
                 )),
           ],
         ],
@@ -346,7 +414,7 @@ class _TodoScreenState extends State<TodoScreen> {
     );
   }
 
-  // ─── 투두 리스트 ─────────────────────────────────────────────────────────────
+  // ─── 투두 리스트 (ReorderableListView) ──────────────────────────────────────
   Widget _buildTodoList() {
     final todos = _selTodos;
     if (todos.isEmpty) {
@@ -354,24 +422,33 @@ class _TodoScreenState extends State<TodoScreen> {
         child: Text('할 일을 추가해봐요',
             style: TextStyle(
               fontSize: 14,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.28),
+              color:
+                  Theme.of(context).colorScheme.onSurface.withOpacity(0.28),
             )),
       );
     }
-    return ListView.builder(
+
+    return ReorderableListView.builder(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+      buildDefaultDragHandles: false,
       itemCount: todos.length,
-      itemBuilder: (_, i) => _buildItem(todos[i]),
+      onReorder: _onReorder,
+      itemBuilder: (_, index) {
+        final todo = todos[index];
+        return _buildItem(todo, index);
+      },
     );
   }
 
-  Widget _buildItem(Todo todo) {
+  Widget _buildItem(Todo todo, int index) {
     final eid = '${todo.date}:${todo.id}';
     final isEditing = _editingId == eid;
 
     return Dismissible(
       key: ValueKey('todo-${todo.id}'),
       direction: DismissDirection.endToStart,
+      confirmDismiss: (_) => _confirmDelete(),
+      onDismissed: (_) => _deleteTodo(todo),
       background: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 8),
@@ -379,20 +456,33 @@ class _TodoScreenState extends State<TodoScreen> {
             size: 18,
             color: Theme.of(context).colorScheme.error.withOpacity(0.55)),
       ),
-      onDismissed: (_) => _deleteTodo(todo),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 9),
+        padding: const EdgeInsets.symmetric(vertical: 10),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            GestureDetector(
-              onTap: () => _toggleDone(todo),
+            // 드래그 핸들
+            ReorderableDragStartListener(
+              index: index,
               child: Padding(
-                padding: const EdgeInsets.only(top: 1),
-                child: _buildCircleCheck(todo.done),
+                padding: const EdgeInsets.only(right: 8),
+                child: Icon(
+                  Icons.drag_indicator_outlined,
+                  size: 18,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.22),
+                ),
               ),
             ),
+            // 체크박스
+            GestureDetector(
+              onTap: () => _toggleDone(todo),
+              child: _buildCircleCheck(todo.done),
+            ),
             const SizedBox(width: 14),
+            // 텍스트 (탭하면 편집)
             Expanded(
               child: isEditing
                   ? Row(children: [
@@ -421,12 +511,13 @@ class _TodoScreenState extends State<TodoScreen> {
                           padding: const EdgeInsets.only(left: 8),
                           child: Icon(Icons.check_rounded,
                               size: 20,
-                              color: Theme.of(context).colorScheme.primary),
+                              color:
+                                  Theme.of(context).colorScheme.primary),
                         ),
                       ),
                     ])
                   : GestureDetector(
-                      onLongPress: () {
+                      onTap: () {
                         _editController.text = todo.text;
                         setState(() => _editingId = eid);
                         WidgetsBinding.instance.addPostFrameCallback(
@@ -438,8 +529,14 @@ class _TodoScreenState extends State<TodoScreen> {
                           fontSize: 15,
                           height: 1.45,
                           color: todo.done
-                              ? Theme.of(context).colorScheme.onSurface.withOpacity(0.3)
-                              : Theme.of(context).colorScheme.onSurface.withOpacity(0.88),
+                              ? Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.3)
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .onSurface
+                                  .withOpacity(0.88),
                           decoration: todo.done
                               ? TextDecoration.lineThrough
                               : TextDecoration.none,
@@ -464,7 +561,9 @@ class _TodoScreenState extends State<TodoScreen> {
       height: 22,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        color: done ? Theme.of(context).colorScheme.primary : Colors.transparent,
+        color: done
+            ? Theme.of(context).colorScheme.primary
+            : Colors.transparent,
         border: Border.all(
           color: done
               ? Theme.of(context).colorScheme.primary
@@ -478,14 +577,15 @@ class _TodoScreenState extends State<TodoScreen> {
     );
   }
 
-  // ─── 하단 입력창 ────────────────────────────────────────────────────────────
+  // ─── 하단 입력창 ─────────────────────────────────────────────────────────────
   Widget _buildAddBar() {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
       decoration: BoxDecoration(
         color: Theme.of(context).colorScheme.surface,
         border: Border(
-          top: BorderSide(color: Theme.of(context).dividerColor, width: 0.5),
+          top: BorderSide(
+              color: Theme.of(context).dividerColor, width: 0.5),
         ),
       ),
       child: SafeArea(
@@ -508,7 +608,10 @@ class _TodoScreenState extends State<TodoScreen> {
                   hintText: '할 일 추가...',
                   hintStyle: TextStyle(
                     fontSize: 15,
-                    color: Theme.of(context).colorScheme.onSurface.withOpacity(0.28),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.28),
                   ),
                   border: InputBorder.none,
                   isDense: true,
@@ -528,7 +631,8 @@ class _TodoScreenState extends State<TodoScreen> {
                   shape: BoxShape.circle,
                 ),
                 child: Icon(Icons.arrow_upward_rounded,
-                    size: 17, color: Theme.of(context).colorScheme.onPrimary),
+                    size: 17,
+                    color: Theme.of(context).colorScheme.onPrimary),
               ),
             ),
           ],

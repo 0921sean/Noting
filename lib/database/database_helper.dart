@@ -20,12 +20,12 @@ class DatabaseHelper {
     if (kIsWeb) {
       databaseFactory = databaseFactoryFfiWeb;
       return await openDatabase(filePath,
-          version: 3, onCreate: _createDB, onUpgrade: _upgradeDB);
+          version: 4, onCreate: _createDB, onUpgrade: _upgradeDB);
     }
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
     return await openDatabase(path,
-        version: 3, onCreate: _createDB, onUpgrade: _upgradeDB);
+        version: 4, onCreate: _createDB, onUpgrade: _upgradeDB);
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -43,7 +43,8 @@ class DatabaseHelper {
         text TEXT NOT NULL,
         date TEXT NOT NULL,
         done INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        order_index INTEGER NOT NULL DEFAULT 0
       )
     ''');
   }
@@ -63,9 +64,24 @@ class DatabaseHelper {
         )
       ''');
     }
+    if (oldVersion < 4) {
+      // 카테고리 키를 한글로 마이그레이션
+      await db.execute("UPDATE notes SET category = '아이디어' WHERE category = 'idea'");
+      await db.execute("UPDATE notes SET category = '할 일' WHERE category = 'todo'");
+      await db.execute("UPDATE notes SET category = '생각' WHERE category = 'thought'");
+      // 투두 순서 컬럼 추가
+      await db.execute(
+          'ALTER TABLE todos ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0');
+      // 기존 투두에 순서 초기화
+      final rows = await db.query('todos', orderBy: 'date ASC, created_at ASC');
+      for (int i = 0; i < rows.length; i++) {
+        await db.update('todos', {'order_index': i},
+            where: 'id = ?', whereArgs: [rows[i]['id']]);
+      }
+    }
   }
 
-  // ── Notes ────────────────────────────────────────────────────────────────
+  // ── Notes ─────────────────────────────────────────────────────────────────
 
   Future<Note> createNote(String content) async {
     final db = await database;
@@ -98,11 +114,8 @@ class DatabaseHelper {
     final cutoff = DateTime.now()
         .subtract(Duration(days: daysOld))
         .millisecondsSinceEpoch;
-    final old = await db.query(
-      'notes',
-      where: 'created_at < ?',
-      whereArgs: [cutoff],
-    );
+    final old = await db
+        .query('notes', where: 'created_at < ?', whereArgs: [cutoff]);
     if (old.isNotEmpty) return old.map(Note.fromMap).toList();
     final all = await db.query('notes');
     return all.map(Note.fromMap).toList();
@@ -117,22 +130,14 @@ class DatabaseHelper {
 
   Future<int> updateNote(Note note) async {
     final db = await database;
-    return db.update(
-      'notes',
-      {'content': note.content},
-      where: 'id = ?',
-      whereArgs: [note.id],
-    );
+    return db.update('notes', {'content': note.content},
+        where: 'id = ?', whereArgs: [note.id]);
   }
 
-  Future<int> updateCategory(int id, String category) async {
+  Future<void> updateNoteCategory(int id, String? category) async {
     final db = await database;
-    return db.update(
-      'notes',
-      {'category': category},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.update('notes', {'category': category},
+        where: 'id = ?', whereArgs: [id]);
   }
 
   Future<int> deleteNote(int id) async {
@@ -144,36 +149,48 @@ class DatabaseHelper {
 
   Future<Todo> createTodo(String text, String date) async {
     final db = await database;
-    final todo = Todo(text: text, date: date, createdAt: DateTime.now());
+    // 해당 날짜의 최대 order_index + 1
+    final rows = await db.query('todos',
+        where: 'date = ?', whereArgs: [date], orderBy: 'order_index DESC', limit: 1);
+    final nextOrder = rows.isEmpty ? 0 : ((rows.first['order_index'] as int) + 1);
+    final todo =
+        Todo(text: text, date: date, createdAt: DateTime.now(), orderIndex: nextOrder);
     final id = await db.insert('todos', todo.toMap());
     return todo.copyWith(id: id);
   }
 
   Future<List<Todo>> readAllTodos() async {
     final db = await database;
-    final result =
-        await db.query('todos', orderBy: 'date ASC, created_at ASC');
+    final result = await db.query('todos',
+        orderBy: 'date ASC, order_index ASC, created_at ASC');
+    return result.map(Todo.fromMap).toList();
+  }
+
+  Future<List<Todo>> readTodosForDate(String date) async {
+    final db = await database;
+    final result = await db.query('todos',
+        where: 'date = ?',
+        whereArgs: [date],
+        orderBy: 'order_index ASC, created_at ASC');
     return result.map(Todo.fromMap).toList();
   }
 
   Future<void> updateTodoDone(int id, bool done) async {
     final db = await database;
-    await db.update(
-      'todos',
-      {'done': done ? 1 : 0},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.update('todos', {'done': done ? 1 : 0},
+        where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> updateTodoText(int id, String text) async {
     final db = await database;
-    await db.update(
-      'todos',
-      {'text': text},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.update('todos', {'text': text},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateTodoOrderIndex(int id, int orderIndex) async {
+    final db = await database;
+    await db.update('todos', {'order_index': orderIndex},
+        where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> deleteTodo(int id) async {

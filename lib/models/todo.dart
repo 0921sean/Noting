@@ -4,6 +4,7 @@ class Todo {
   final String date; // 'YYYY-MM-DD'
   final bool done;
   final DateTime createdAt;
+  final int orderIndex;
 
   const Todo({
     this.id,
@@ -11,14 +12,16 @@ class Todo {
     required this.date,
     this.done = false,
     required this.createdAt,
+    this.orderIndex = 0,
   });
 
-  Todo copyWith({int? id, String? text, bool? done}) => Todo(
+  Todo copyWith({int? id, String? text, bool? done, int? orderIndex}) => Todo(
         id: id ?? this.id,
         text: text ?? this.text,
         date: date,
         done: done ?? this.done,
         createdAt: createdAt,
+        orderIndex: orderIndex ?? this.orderIndex,
       );
 
   Map<String, dynamic> toMap() => {
@@ -27,6 +30,7 @@ class Todo {
         'date': date,
         'done': done ? 1 : 0,
         'created_at': createdAt.millisecondsSinceEpoch,
+        'order_index': orderIndex,
       };
 
   factory Todo.fromMap(Map<String, dynamic> map) => Todo(
@@ -37,5 +41,6 @@ class Todo {
         createdAt: map['created_at'] is int
             ? DateTime.fromMillisecondsSinceEpoch(map['created_at'] as int)
             : DateTime.now(),
+        orderIndex: (map['order_index'] as int?) ?? 0,
       );
 }
