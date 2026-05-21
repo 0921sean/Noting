@@ -35,6 +35,6 @@ echo "🎉 완료!"
 echo "📦 GitHub push 중..."
 git add -A
 git diff --cached --quiet && echo "변경 없음 — push 스킵" || \
-  git commit -m "chore: release noting-v${VERSION}" && \
+  git commit -m "v${VERSION} - 릴리즈 빌드" && \
   git push origin main && \
   echo "✅ GitHub push 완료: noting-v${VERSION}"
