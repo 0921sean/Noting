@@ -226,21 +226,26 @@ class SupabaseService {
 
   static Future<Map<int, List<TimeRecord>>> readTimeRecordsForDate(
       String date) async {
-    // todos.date 기준으로 join
-    final rows = await _db.from('noting_time_records').select('''
-      id, todo_id, start_time, end_time,
-      noting_todos!inner(date)
-    ''').eq('noting_todos.date', date).order('start_time', ascending: true);
+    // 1단계: 해당 날짜의 todo id 목록 조회
+    final todos = await _db
+        .from('noting_todos')
+        .select('id')
+        .eq('date', date);
+
+    if (todos.isEmpty) return {};
+
+    final todoIds = todos.map((t) => t['id'] as int).toList();
+
+    // 2단계: 해당 todo들의 시간 기록 조회
+    final rows = await _db
+        .from('noting_time_records')
+        .select()
+        .inFilter('todo_id', todoIds)
+        .order('start_time', ascending: true);
 
     final map = <int, List<TimeRecord>>{};
     for (final row in rows) {
-      // join 결과에서 todos 필드 제거 후 파싱
-      final rec = TimeRecord.fromMap({
-        'id': row['id'],
-        'todo_id': row['todo_id'],
-        'start_time': row['start_time'],
-        'end_time': row['end_time'],
-      });
+      final rec = TimeRecord.fromMap(row);
       map.putIfAbsent(rec.todoId, () => []).add(rec);
     }
     return map;
