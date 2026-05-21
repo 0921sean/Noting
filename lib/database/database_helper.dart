@@ -325,4 +325,16 @@ class DatabaseHelper {
     await db.delete('todo_time_records',
         where: 'todo_id = ?', whereArgs: [todoId]);
   }
+
+  /// 로컬 SQLite의 모든 시간 기록 반환 (마이그레이션용)
+  Future<List<Map<String, dynamic>>> readAllTimeRecordsRaw() async {
+    final db = await database;
+    return db.rawQuery('''
+      SELECT r.id, r.todo_id, r.start_time, r.end_time,
+             t.text, t.date
+      FROM todo_time_records r
+      INNER JOIN todos t ON r.todo_id = t.id
+      ORDER BY t.date ASC, r.start_time ASC
+    ''');
+  }
 }

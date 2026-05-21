@@ -293,14 +293,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
       for (final t in todos) {
         await SupabaseService.importTodo(t.toMap());
       }
+
+      // 시간 기록 마이그레이션
+      // 로컬 todo_id → Supabase todo_id 매핑 (text+date 기준)
+      int timeRecordCount = 0;
+      final localTimeRecords =
+          await DatabaseHelper.instance.readAllTimeRecordsRaw();
+      if (localTimeRecords.isNotEmpty) {
+        // Supabase에서 현재 투두 목록 가져오기
+        final cloudTodos = await SupabaseService.readAllTodos();
+        final todoMap = <String, int>{}; // 'text|date' → Supabase todo_id
+        for (final t in cloudTodos) {
+          if (t.id != null) todoMap['${t.text}|${t.date}'] = t.id!;
+        }
+        for (final row in localTimeRecords) {
+          final key = '${row['text']}|${row['date']}';
+          final cloudTodoId = todoMap[key];
+          if (cloudTodoId == null) continue;
+          try {
+            var rec = await SupabaseService.createTimeRecord(
+                cloudTodoId, row['start_time'] as String);
+            final endTime = row['end_time'] as String?;
+            if (endTime != null) {
+              await SupabaseService.finishTimeRecord(rec.id!, endTime);
+            }
+            timeRecordCount++;
+          } catch (_) {}
+        }
+      }
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content:
-            Text('업로드 완료 — 메모 ${notes.length}개, 투두 ${todos.length}개'),
+        content: Text(
+            '업로드 완료 — 메모 ${notes.length}개, 투두 ${todos.length}개, 시간 기록 $timeRecordCount개'),
         behavior: SnackBarBehavior.floating,
         shape:
             RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 3),
+        duration: const Duration(seconds: 4),
       ));
     } catch (e) {
       if (!mounted) return;
