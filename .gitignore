@@ -44,3 +44,4 @@ app.*.map.json
 .gstack/
 .claude/
 lib/config.dart
+assets/fonts/
