@@ -3,7 +3,11 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../database/database_helper.dart';
+import '../services/supabase_service.dart';
+import 'auth_screen.dart';
+import '../services/category_service.dart';
 import '../services/classifier_service.dart';
 import '../services/notification_service.dart';
 
@@ -19,6 +23,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _minute = 0;
   bool _loading = true;
   bool _reclassifying = false;
+  bool _autoGenerating = false;
+  bool _migrating = false;
 
   @override
   void initState() {
@@ -37,8 +43,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _exportData() async {
-    final notes = await DatabaseHelper.instance.readAllNotes();
-    final todos = await DatabaseHelper.instance.readAllTodos();
+    final notes = await SupabaseService.readAllNotes();
+    final todos = await SupabaseService.readAllTodos();
     final payload = jsonEncode({
       'exported_at': DateTime.now().toIso8601String(),
       'notes': notes.map((n) => n.toMap()).toList(),
@@ -103,10 +109,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final notesRaw = (data['notes'] as List?) ?? [];
       final todosRaw = (data['todos'] as List?) ?? [];
       for (final n in notesRaw) {
-        await DatabaseHelper.instance.importNote(n as Map<String, dynamic>);
+        await SupabaseService.importNote(n as Map<String, dynamic>);
       }
       for (final t in todosRaw) {
-        await DatabaseHelper.instance.importTodo(t as Map<String, dynamic>);
+        await SupabaseService.importTodo(t as Map<String, dynamic>);
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -127,11 +133,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _reclassifyAll() async {
     setState(() => _reclassifying = true);
-    final notes = await DatabaseHelper.instance.readAllNotes();
+    final notes = await SupabaseService.readAllNotes();
     await ClassifierService.reclassifyAll(
       notes: notes,
       onClassified: (id, category) async =>
-          DatabaseHelper.instance.updateNoteCategory(id, category),
+          SupabaseService.updateNoteCategory(id, category),
     );
     if (!mounted) return;
     setState(() => _reclassifying = false);
@@ -142,6 +148,178 @@ class _SettingsScreenState extends State<SettingsScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 2),
       ),
+    );
+  }
+
+  Future<void> _autoGenerateCategories() async {
+    // 확인 다이얼로그
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('카테고리 자동 생성',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        content: const Text(
+          '내 메모 전체를 AI가 읽고 적합한 카테고리를 만들어줘요.\n기존 카테고리는 새 카테고리로 교체돼요.',
+          style: TextStyle(fontSize: 14, height: 1.6),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('취소',
+                style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.5))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('생성',
+                style:
+                    TextStyle(color: Theme.of(context).colorScheme.primary)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _autoGenerating = true);
+
+    final notes = await SupabaseService.readAllNotes();
+    if (notes.isEmpty) {
+      if (!mounted) return;
+      setState(() => _autoGenerating = false);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('메모가 없어요'),
+        behavior: SnackBarBehavior.floating,
+      ));
+      return;
+    }
+
+    final result = await ClassifierService.autoGenerateCategories(notes);
+    if (!mounted) return;
+    setState(() => _autoGenerating = false);
+
+    if (result == null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('카테고리 생성에 실패했어요. 다시 시도해봐요.'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+      return;
+    }
+
+    // 기존 카테고리 교체
+    await _clearAndSaveCategories(result.categories);
+
+    // 각 메모에 카테고리 배정
+    int assigned = 0;
+    for (final entry in result.assignments.entries) {
+      if (result.categories.contains(entry.value)) {
+        await SupabaseService.updateNoteCategory(
+            entry.key, entry.value);
+        assigned++;
+      }
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(
+          '카테고리 ${result.categories.length}개 생성, 메모 $assigned개 분류 완료'),
+      behavior: SnackBarBehavior.floating,
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      duration: const Duration(seconds: 3),
+    ));
+  }
+
+  Future<void> _clearAndSaveCategories(List<String> newCats) async {
+    final categories = newCats;
+    // SharedPreferences에 새 카테고리 목록 저장
+    for (final cat in categories) {
+      await CategoryService.add(cat);
+    }
+    // 기존 카테고리 중 새 목록에 없는 것 제거
+    final current = await CategoryService.getAll();
+    for (final old in List.from(current)) {
+      if (!categories.contains(old)) {
+        await CategoryService.remove(old);
+      }
+    }
+  }
+
+  // 기존 로컬 SQLite 데이터를 Supabase로 업로드 (최초 1회)
+  Future<void> _migrateLocalToCloud() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('로컬 데이터 업로드',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        content: const Text(
+          '이 기기의 기존 메모/투두를 클라우드에 올려요.\n처음 로그인한 기기에서 한 번만 하면 돼요.',
+          style: TextStyle(fontSize: 14, height: 1.6),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('취소',
+                style: TextStyle(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onSurface
+                        .withOpacity(0.5))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('업로드',
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _migrating = true);
+    try {
+      final notes = await DatabaseHelper.instance.readAllNotes();
+      final todos = await DatabaseHelper.instance.readAllTodos();
+      for (final n in notes) {
+        await SupabaseService.importNote(n.toMap());
+      }
+      for (final t in todos) {
+        await SupabaseService.importTodo(t.toMap());
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content:
+            Text('업로드 완료 — 메모 ${notes.length}개, 투두 ${todos.length}개'),
+        behavior: SnackBarBehavior.floating,
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 3),
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('업로드 실패: $e'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 6),
+      ));
+    } finally {
+      if (mounted) setState(() => _migrating = false);
+    }
+  }
+
+  Future<void> _signOut() async {
+    await Supabase.instance.client.auth.signOut();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const AuthScreen()),
+      (_) => false,
     );
   }
 
@@ -229,6 +407,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 8),
                   _WarmCard(
                     children: [
+                      // 카테고리 자동 생성
+                      _autoGenerating
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 18),
+                              child: Center(
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text('카테고리 생성 중...',
+                                        style: TextStyle(fontSize: 14)),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : _WarmTile(
+                              icon: Icons.category_outlined,
+                              title: '카테고리 자동 생성',
+                              subtitle: '내 메모를 AI가 읽고 카테고리를 만들어줘요',
+                              onTap: _autoGenerateCategories,
+                            ),
+                      Divider(
+                          height: 1,
+                          thickness: 0.5,
+                          color: Theme.of(context).dividerColor),
+                      // 기존 분류
                       _reclassifying
                           ? const Padding(
                               padding: EdgeInsets.symmetric(vertical: 18),
@@ -239,10 +449,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     SizedBox(
                                       width: 16,
                                       height: 16,
-                                      child: CircularProgressIndicator(strokeWidth: 2),
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
                                     ),
                                     SizedBox(width: 10),
-                                    Text('분류 중...', style: TextStyle(fontSize: 14)),
+                                    Text('분류 중...',
+                                        style: TextStyle(fontSize: 14)),
                                   ],
                                 ),
                               ),
@@ -250,6 +462,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           : _WarmTile(
                               icon: Icons.auto_awesome_outlined,
                               title: '전체 메모 재분류',
+                              subtitle: '현재 카테고리 기준으로 다시 분류',
                               onTap: _reclassifyAll,
                             ),
                     ],
@@ -295,6 +508,56 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 28),
                   ],
+
+                  // 기존 로컬 데이터 마이그레이션
+                  const _SectionLabel(label: '기기 이전'),
+                  const SizedBox(height: 8),
+                  _WarmCard(
+                    children: [
+                      _migrating
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 18),
+                              child: Center(
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    ),
+                                    SizedBox(width: 10),
+                                    Text('업로드 중...',
+                                        style: TextStyle(fontSize: 14)),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : _WarmTile(
+                              icon: Icons.cloud_upload_outlined,
+                              title: '이전 데이터 클라우드에 올리기',
+                              subtitle: '앱 처음 설치했을 때 로컬에 있던 데이터 업로드',
+                              onTap: _migrateLocalToCloud,
+                            ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
+
+                  // 계정
+                  const _SectionLabel(label: '계정'),
+                  const SizedBox(height: 8),
+                  _WarmCard(
+                    children: [
+                      _WarmTile(
+                        icon: Icons.logout_outlined,
+                        title: '로그아웃',
+                        onTap: _signOut,
+                        titleColor: Theme.of(context).colorScheme.error,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 28),
 
                   // 정보
                   const _SectionLabel(label: '정보'),
@@ -351,7 +614,8 @@ class _WarmTile extends StatelessWidget {
   final String? subtitle;
   final Widget? trailing;
   final VoidCallback? onTap;
-  const _WarmTile({required this.icon, required this.title, this.subtitle, this.trailing, this.onTap});
+  final Color? titleColor;
+  const _WarmTile({required this.icon, required this.title, this.subtitle, this.trailing, this.onTap, this.titleColor});
 
   @override
   Widget build(BuildContext context) => InkWell(
@@ -369,7 +633,7 @@ class _WarmTile extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w500,
-                      color: Theme.of(context).colorScheme.onSurface,
+                      color: titleColor ?? Theme.of(context).colorScheme.onSurface,
                     )),
                 if (subtitle != null) ...[
                   const SizedBox(height: 2),

@@ -2,7 +2,7 @@ import 'dart:math';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
-import '../database/database_helper.dart';
+import '../services/supabase_service.dart';
 
 // Callback type for when user taps a notification while app is running
 typedef NotificationTapCallback = void Function(int noteId);
@@ -84,7 +84,7 @@ class NotificationService {
     if (_scheduling) return;
     _scheduling = true;
     try {
-      final notes = await DatabaseHelper.instance.readRemindPool(daysOld: 7);
+      final notes = await SupabaseService.readRemindPool(daysOld: 7);
       if (notes.isEmpty) return;
 
       final prefs = await SharedPreferences.getInstance();

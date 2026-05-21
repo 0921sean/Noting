@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../models/note.dart';
-import '../database/database_helper.dart';
+import '../services/supabase_service.dart';
 
 class NoteDetailScreen extends StatefulWidget {
   final Note note;
@@ -50,7 +50,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
       return;
     }
     final updated = _note.copyWith(content: text);
-    await DatabaseHelper.instance.updateNote(updated);
+    await SupabaseService.updateNote(updated);
     if (!mounted) return;
     setState(() {
       _note = updated;
@@ -249,7 +249,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
             onPressed: () async {
               Navigator.of(ctx).pop();
               if (_note.id != null) {
-                await DatabaseHelper.instance.deleteNote(_note.id!);
+                await SupabaseService.deleteNote(_note.id!);
               }
               if (mounted) {
                 Navigator.of(context).pop();

@@ -4,6 +4,7 @@ import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import 'package:path/path.dart';
 import '../models/note.dart';
 import '../models/todo.dart';
+import '../models/time_record.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -20,12 +21,12 @@ class DatabaseHelper {
     if (kIsWeb) {
       databaseFactory = databaseFactoryFfiWeb;
       return await openDatabase(filePath,
-          version: 5, onCreate: _createDB, onUpgrade: _upgradeDB);
+          version: 6, onCreate: _createDB, onUpgrade: _upgradeDB);
     }
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
     return await openDatabase(path,
-        version: 5, onCreate: _createDB, onUpgrade: _upgradeDB);
+        version: 6, onCreate: _createDB, onUpgrade: _upgradeDB);
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -49,6 +50,14 @@ class DatabaseHelper {
         end_time TEXT
       )
     ''');
+    await db.execute('''
+      CREATE TABLE todo_time_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        todo_id INTEGER NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time TEXT
+      )
+    ''');
   }
 
   Future<void> _upgradeDB(Database db, int oldVersion, int newVersion) async {
@@ -67,14 +76,11 @@ class DatabaseHelper {
       ''');
     }
     if (oldVersion < 4) {
-      // 카테고리 키를 한글로 마이그레이션
       await db.execute("UPDATE notes SET category = '아이디어' WHERE category = 'idea'");
       await db.execute("UPDATE notes SET category = '할 일' WHERE category = 'todo'");
       await db.execute("UPDATE notes SET category = '생각' WHERE category = 'thought'");
-      // 투두 순서 컬럼 추가
       await db.execute(
           'ALTER TABLE todos ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0');
-      // 기존 투두에 순서 초기화
       final rows = await db.query('todos', orderBy: 'date ASC, created_at ASC');
       for (int i = 0; i < rows.length; i++) {
         await db.update('todos', {'order_index': i},
@@ -84,6 +90,26 @@ class DatabaseHelper {
     if (oldVersion < 5) {
       await db.execute('ALTER TABLE todos ADD COLUMN start_time TEXT');
       await db.execute('ALTER TABLE todos ADD COLUMN end_time TEXT');
+    }
+    if (oldVersion < 6) {
+      await db.execute('''
+        CREATE TABLE todo_time_records (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          todo_id INTEGER NOT NULL,
+          start_time TEXT NOT NULL,
+          end_time TEXT
+        )
+      ''');
+      // 기존 start_time/end_time이 있는 투두를 records로 마이그레이션
+      final existing = await db.query('todos',
+          where: 'start_time IS NOT NULL');
+      for (final row in existing) {
+        await db.insert('todo_time_records', {
+          'todo_id': row['id'],
+          'start_time': row['start_time'],
+          'end_time': row['end_time'],
+        });
+      }
     }
   }
 
@@ -120,8 +146,8 @@ class DatabaseHelper {
     final cutoff = DateTime.now()
         .subtract(Duration(days: daysOld))
         .millisecondsSinceEpoch;
-    final old = await db
-        .query('notes', where: 'created_at < ?', whereArgs: [cutoff]);
+    final old =
+        await db.query('notes', where: 'created_at < ?', whereArgs: [cutoff]);
     if (old.isNotEmpty) return old.map(Note.fromMap).toList();
     final all = await db.query('notes');
     return all.map(Note.fromMap).toList();
@@ -155,10 +181,13 @@ class DatabaseHelper {
 
   Future<Todo> createTodo(String text, String date) async {
     final db = await database;
-    // 해당 날짜의 최대 order_index + 1
     final rows = await db.query('todos',
-        where: 'date = ?', whereArgs: [date], orderBy: 'order_index DESC', limit: 1);
-    final nextOrder = rows.isEmpty ? 0 : ((rows.first['order_index'] as int) + 1);
+        where: 'date = ?',
+        whereArgs: [date],
+        orderBy: 'order_index DESC',
+        limit: 1);
+    final nextOrder =
+        rows.isEmpty ? 0 : ((rows.first['order_index'] as int) + 1);
     final todo =
         Todo(text: text, date: date, createdAt: DateTime.now(), orderIndex: nextOrder);
     final id = await db.insert('todos', todo.toMap());
@@ -205,7 +234,6 @@ class DatabaseHelper {
         where: 'id = ?', whereArgs: [id]);
   }
 
-  /// 내보낸 JSON map으로 노트 삽입 (id 무시, 중복 content+created_at 건너뜀)
   Future<void> importNote(Map<String, dynamic> map) async {
     final db = await database;
     final existing = await db.query('notes',
@@ -239,5 +267,62 @@ class DatabaseHelper {
   Future<void> deleteTodo(int id) async {
     final db = await database;
     await db.delete('todos', where: 'id = ?', whereArgs: [id]);
+    await db.delete('todo_time_records', where: 'todo_id = ?', whereArgs: [id]);
+  }
+
+  // ── TimeRecords ───────────────────────────────────────────────────────────
+
+  Future<TimeRecord> createTimeRecord(int todoId, String startTime) async {
+    final db = await database;
+    final record = TimeRecord(todoId: todoId, startTime: startTime);
+    final id = await db.insert('todo_time_records', {
+      'todo_id': todoId,
+      'start_time': startTime,
+      'end_time': null,
+    });
+    return record.copyWith(id: id);
+  }
+
+  Future<void> finishTimeRecord(int id, String endTime) async {
+    final db = await database;
+    await db.update('todo_time_records', {'end_time': endTime},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> updateTimeRecord(
+      int id, String startTime, String? endTime) async {
+    final db = await database;
+    await db.update('todo_time_records',
+        {'start_time': startTime, 'end_time': endTime},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> deleteTimeRecord(int id) async {
+    final db = await database;
+    await db.delete('todo_time_records', where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// 특정 날짜의 모든 투두에 대한 시간 기록 (todoId → List<TimeRecord>)
+  Future<Map<int, List<TimeRecord>>> readTimeRecordsForDate(String date) async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT r.* FROM todo_time_records r
+      INNER JOIN todos t ON r.todo_id = t.id
+      WHERE t.date = ?
+      ORDER BY r.start_time ASC
+    ''', [date]);
+
+    final map = <int, List<TimeRecord>>{};
+    for (final row in rows) {
+      final rec = TimeRecord.fromMap(row);
+      map.putIfAbsent(rec.todoId, () => []).add(rec);
+    }
+    return map;
+  }
+
+  Future<void> deleteAllTimeRecordsForTodo(int todoId) async {
+    final db = await database;
+    await db.delete('todo_time_records',
+        where: 'todo_id = ?', whereArgs: [todoId]);
   }
 }

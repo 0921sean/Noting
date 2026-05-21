@@ -1,14 +1,24 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz_local;
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'config.dart';
 import 'services/notification_service.dart';
+import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/onboarding_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Supabase 초기화
+  await Supabase.initialize(
+    url: kSupabaseUrl,
+    anonKey: kSupabaseAnonKey,
+  );
 
   if (!kIsWeb) {
     // Timezone init — getLocation throws for unknown IDs; fall back to UTC
@@ -24,43 +34,60 @@ void main() async {
     await NotificationService.instance.initialize();
   }
 
-  // Check if we need to request notification permission (first launch)
   final prefs = await SharedPreferences.getInstance();
   final permissionAsked = prefs.getBool('permission_asked') ?? false;
+  final onboardingDone = prefs.getBool('onboarding_done') ?? false;
 
-  // Check if launched from a notification tap
   final launchNoteId = kIsWeb
       ? null
       : await NotificationService.instance.getLaunchNoteId();
 
+  final isLoggedIn =
+      Supabase.instance.client.auth.currentSession != null;
+
   runApp(NotingApp(
     permissionAsked: permissionAsked,
+    onboardingDone: onboardingDone,
     launchNoteId: launchNoteId,
+    isLoggedIn: isLoggedIn,
   ));
 }
 
 class NotingApp extends StatelessWidget {
   final bool permissionAsked;
+  final bool onboardingDone;
+  final bool isLoggedIn;
   final int? launchNoteId;
 
   const NotingApp({
     super.key,
     required this.permissionAsked,
+    required this.onboardingDone,
+    required this.isLoggedIn,
     this.launchNoteId,
   });
 
   @override
   Widget build(BuildContext context) {
+    Widget home;
+    if (!isLoggedIn) {
+      home = const AuthScreen();
+    } else if (!onboardingDone) {
+      home = const OnboardingScreen();
+    } else {
+      home = _HomeWrapper(
+        permissionAsked: permissionAsked,
+        launchNoteId: launchNoteId,
+      );
+    }
+
     return MaterialApp(
       title: 'Noting',
       debugShowCheckedModeBanner: false,
       theme: _lightTheme(),
       darkTheme: _darkTheme(),
       themeMode: ThemeMode.system,
-      home: _HomeWrapper(
-        permissionAsked: permissionAsked,
-        launchNoteId: launchNoteId,
-      ),
+      home: home,
     );
   }
 

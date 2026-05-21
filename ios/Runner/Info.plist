@@ -43,8 +43,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
-	<!-- Local notifications permission usage description -->
 	<key>NSUserNotificationUsageDescription</key>
 	<string>예전에 쓴 메모를 매일 한 번 다시 보내드려요.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>플래너 이미지를 사진 앨범에 저장해요.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>플래너 이미지를 사진 앨범에 저장해요.</string>
 </dict>
 </plist>
