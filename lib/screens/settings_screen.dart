@@ -270,24 +270,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 28),
 
-                  // ── 알림 (네이티브만) ─────────────────────────────────────
+                  // ── 리마인드 (네이티브만) ─────────────────────────────────
                   if (!kIsWeb) ...[
-                    const _SectionLabel(label: '알림'),
+                    const _SectionLabel(label: '리마인드'),
                     const SizedBox(height: 8),
                     _WarmCard(
                       children: [
                         _WarmTile(
                           icon: Icons.access_time_outlined,
-                          title: '매일 알림 시간',
-                          trailing: Text(
-                              '${_z(_hour)}:${_z(_minute)}',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w500,
-                                color:
-                                    Theme.of(context).colorScheme.primary,
-                              )),
+                          title: '${_z(_hour)}:${_z(_minute)}에 예전 메모를 보내줘요',
+                          subtitle: '탭해서 시간 변경',
                           onTap: _pickTime,
+                          showChevron: false,
                         ),
                         Divider(
                             height: 1,
@@ -296,6 +290,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _WarmTile(
                           icon: Icons.notifications_outlined,
                           title: '알림 권한 확인',
+                          subtitle: '알림이 안 오면 여기서 확인해요',
                           onTap: () async {
                             final messenger = ScaffoldMessenger.of(context);
                             final ok = await NotificationService.instance
@@ -344,7 +339,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           : _WarmTile(
                               icon: Icons.cloud_upload_outlined,
                               title: '이전 데이터 클라우드에 올리기',
-                              subtitle: '앱 첫 설치 시 로컬 데이터 업로드',
+                              subtitle: '이전 버전 앱을 쓰던 경우에만 필요해요',
                               onTap: _migrateLocalToCloud,
                             ),
                     ],
