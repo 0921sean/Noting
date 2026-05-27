@@ -226,27 +226,21 @@ class SupabaseService {
 
   static Future<Map<int, List<TimeRecord>>> readTimeRecordsForDate(
       String date) async {
-    // 1단계: 해당 날짜의 todo id 목록 조회
-    final todos = await _db
+    // 투두 + 시간 기록을 한 번의 요청으로 (PostgREST 임베드) — 네트워크 왕복 2회 → 1회
+    final rows = await _db
         .from('noting_todos')
-        .select('id')
+        .select('id, noting_time_records(*)')
         .eq('date', date);
 
-    if (todos.isEmpty) return {};
-
-    final todoIds = todos.map((t) => t['id'] as int).toList();
-
-    // 2단계: 해당 todo들의 시간 기록 조회
-    final rows = await _db
-        .from('noting_time_records')
-        .select()
-        .inFilter('todo_id', todoIds)
-        .order('start_time', ascending: true);
-
     final map = <int, List<TimeRecord>>{};
-    for (final row in rows) {
-      final rec = TimeRecord.fromMap(row);
-      map.putIfAbsent(rec.todoId, () => []).add(rec);
+    for (final todo in rows) {
+      final recs = (todo['noting_time_records'] as List?) ?? const [];
+      if (recs.isEmpty) continue;
+      final list = recs
+          .map((r) => TimeRecord.fromMap(r as Map<String, dynamic>))
+          .toList()
+        ..sort((a, b) => a.startTime.compareTo(b.startTime));
+      map[todo['id'] as int] = list;
     }
     return map;
   }

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config.dart';
 import '../models/note.dart';
 import '../models/note_group.dart';
@@ -10,8 +11,22 @@ typedef AutoCategoryResult = ({
 });
 
 class ClassifierService {
-  static const _endpoint = 'https://api.anthropic.com/v1/messages';
+  // Anthropic을 직접 호출하지 않고 Supabase Edge Function(classify)을 거친다.
+  // → API 키가 앱에 들어가지 않고 서버 시크릿으로만 보관됨.
+  static const _endpoint = '$kSupabaseUrl/functions/v1/classify';
   static const _model = 'claude-haiku-4-5-20251001';
+
+  // Edge Function 호출 헤더 (로그인 사용자의 JWT로 인증)
+  static Map<String, String> _headers() {
+    final token =
+        Supabase.instance.client.auth.currentSession?.accessToken ??
+            kSupabaseAnonKey;
+    return {
+      'Authorization': 'Bearer $token',
+      'apikey': kSupabaseAnonKey,
+      'content-type': 'application/json',
+    };
+  }
 
   /// 한글 카테고리명 ('아이디어', '할 일', '생각') 중 하나를 반환.
   /// 실패 시 '생각' 반환.
@@ -20,11 +35,7 @@ class ClassifierService {
       final resp = await http
           .post(
             Uri.parse(_endpoint),
-            headers: {
-              'x-api-key': kAnthropicApiKey,
-              'anthropic-version': '2023-06-01',
-              'content-type': 'application/json',
-            },
+            headers: _headers(),
             body: jsonEncode({
               'model': _model,
               'max_tokens': 20,
@@ -117,11 +128,7 @@ class ClassifierService {
       final resp = await http
           .post(
             Uri.parse(_endpoint),
-            headers: {
-              'x-api-key': kAnthropicApiKey,
-              'anthropic-version': '2023-06-01',
-              'content-type': 'application/json',
-            },
+            headers: _headers(),
             body: jsonEncode({
               'model': _model,
               'max_tokens': 2000,
@@ -191,11 +198,7 @@ class ClassifierService {
       final resp = await http
           .post(
             Uri.parse(_endpoint),
-            headers: {
-              'x-api-key': kAnthropicApiKey,
-              'anthropic-version': '2023-06-01',
-              'content-type': 'application/json',
-            },
+            headers: _headers(),
             body: jsonEncode({
               'model': _model,
               'max_tokens': 2000,

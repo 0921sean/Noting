@@ -49,3 +49,14 @@ create policy "own noting_time_records"
   on public.noting_time_records for all
   using  (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+-- 4. 인덱스 (조회 성능)
+--  - notes: 사용자별 최신순 조회
+--  - todos: 사용자+날짜 필터
+--  - time_records: todo_id 임베드/조인 조회
+create index if not exists noting_notes_user_created_idx
+  on public.noting_notes (user_id, created_at desc);
+create index if not exists noting_todos_user_date_idx
+  on public.noting_todos (user_id, date);
+create index if not exists noting_time_records_todo_idx
+  on public.noting_time_records (todo_id);
