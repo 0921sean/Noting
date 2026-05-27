@@ -12,9 +12,6 @@ import '../utils/planner_colors.dart';
 
 const _kBg = Color(0xFFF0EFF8);
 
-// 분 단위 시각을 10분 단위로 반올림 (플래너 셀 경계 정렬 → 경계 겹침 방지)
-int _round10(int minutes) => ((minutes + 5) ~/ 10) * 10;
-
 class PlannerScreen extends StatefulWidget {
   final DateTime date;
   final List<Todo> todos;
@@ -149,15 +146,14 @@ class _PlannerScreenState extends State<PlannerScreen> {
       // TimeRecord 기반 (타이머 기록)
       final records = widget.timeRecords[id] ?? [];
       for (final r in records) {
-        // 시작·끝을 10분 단위로 반올림해서 셀 경계에서 색이 겹치지 않게 함
-        final s = _round10(r.startMinutes);
-        final e = _round10(r.endMinutes ?? r.startMinutes + 60);
+        final s = r.startMinutes;
+        final e = r.endMinutes ?? s + 60;
         if (e > s) ranges.add(_TimeRange(id, s, e));
       }
       // 레거시: todo.startTime/endTime (수동 입력, TimeRecord 없을 때만)
       if (records.isEmpty && todo.startMinutes != null) {
-        final s = _round10(todo.startMinutes!);
-        final e = _round10(todo.endMinutes ?? todo.startMinutes! + 60);
+        final s = todo.startMinutes!;
+        final e = todo.endMinutes ?? s + 60;
         if (e > s) ranges.add(_TimeRange(id, s, e));
       }
     }
@@ -432,40 +428,52 @@ class _GridPainter extends CustomPainter {
       canvas.drawParagraph(para, Offset(0, y + rowH / 2 - 5));
     }
 
-    // 작업 블록 — 모든 _TimeRange를 그림 (같은 todoId라도 여러 세션 가능)
-    for (final range in ranges) {
-      final color = colorMap[range.todoId] ?? kPlannerColors[0];
+    // 각 10분 칸의 주인 = 그 칸을 가장 많이 차지한 작업.
+    //  - 한 작업만 닿으면 짧게 닿아도 칸 전체를 채움 (안 겹칠 땐 다 커버)
+    //  - 둘 이상 겹치면 더 많이 차지한 작업이 칸을 가짐 (칸당 한 색만 → 겹침 없음)
+    _TimeRange? cellOwner(int cellStart) {
+      final cellEnd = cellStart + 10;
+      _TimeRange? owner;
+      int best = 0;
+      for (final range in ranges) {
+        final ovStart = range.start > cellStart ? range.start : cellStart;
+        final ovEnd = range.end < cellEnd ? range.end : cellEnd;
+        final ov = ovEnd - ovStart; // int (겹치는 분), 음수면 안 겹침
+        if (ov > best) {
+          best = ov;
+          owner = range;
+        }
+      }
+      return owner;
+    }
 
-      int s = range.start;
-      while (s < range.end) {
-        final ch = s ~/ 60;
-        final rowIdx = hours.indexOf(ch);
-        if (rowIdx == -1) {
-          s = (ch + 1) * 60;
+    for (int rowIdx = 0; rowIdx < hours.length; rowIdx++) {
+      final h = hours[rowIdx];
+      int c = 0;
+      while (c < 6) {
+        final owner = cellOwner(h * 60 + c * 10);
+        if (owner == null) {
+          c++;
           continue;
         }
-        final cm = s % 60;
-        final nextH = (ch + 1) * 60;
-        final segEnd = math.min(range.end, nextH);
-        final sc = cm ~/ 10;
-        final em = segEnd % 60;
-        final ec = (em == 0 && segEnd > s) ? 6 : ((em + 9) ~/ 10);
-
-        if (ec > sc) {
-          final x1 = labelW + sc * colW;
-          final x2 = labelW + ec * colW;
-          final y = rowIdx * rowH + barOff;
-          final r = math.min(barH / 2, (x2 - x1) / 2);
-
-          canvas.drawRRect(
-            RRect.fromRectAndRadius(
-              Rect.fromLTWH(x1 + 1, y, x2 - x1 - 2, barH),
-              Radius.circular(r),
-            ),
-            Paint()..color = color,
-          );
+        // 같은 주인이 연속되는 칸을 묶어서 하나의 둥근 막대로
+        int cEnd = c + 1;
+        while (cEnd < 6 && cellOwner(h * 60 + cEnd * 10) == owner) {
+          cEnd++;
         }
-        s = segEnd;
+        final color = colorMap[owner.todoId] ?? kPlannerColors[0];
+        final x1 = labelW + c * colW;
+        final x2 = labelW + cEnd * colW;
+        final y = rowIdx * rowH + barOff;
+        final r = math.min(barH / 2, (x2 - x1) / 2);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromLTWH(x1 + 1, y, x2 - x1 - 2, barH),
+            Radius.circular(r),
+          ),
+          Paint()..color = color,
+        );
+        c = cEnd;
       }
     }
 

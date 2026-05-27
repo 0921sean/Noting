@@ -514,8 +514,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     final grid = GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 200, // 너비에 따라 열 수 자동 (세로 2열, 가로 4열~)
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
         childAspectRatio: 1.35,
@@ -590,7 +590,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Widget _dragFeedback(_CategoryItem item) {
-    final w = (MediaQuery.of(context).size.width - 40 - 12) / 2;
+    // 그리드 셀 너비를 SliverGridDelegateWithMaxCrossAxisExtent와 동일하게 계산
+    final avail = MediaQuery.of(context).size.width - 40; // 좌우 패딩 20+20
+    final count = (avail / (200 + 12)).ceil().clamp(1, 99);
+    final w = (avail - (count - 1) * 12) / count;
     return Material(
       color: Colors.transparent,
       child: Transform.rotate(

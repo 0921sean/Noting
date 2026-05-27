@@ -673,17 +673,28 @@ class _TodoScreenState extends State<TodoScreen> {
 
   // ─── 월 헤더 ─────────────────────────────────────────────────────────────────
   Widget _buildMonthHeader() {
+    final landscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final btn = landscape ? 34.0 : 44.0;
+    Widget chevron(IconData icon, VoidCallback onTap) => SizedBox(
+          width: btn,
+          height: btn,
+          child: IconButton(
+            padding: EdgeInsets.zero,
+            icon: Icon(icon, size: 22),
+            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
+            onPressed: onTap,
+          ),
+        );
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.chevron_left, size: 22),
-            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-            onPressed: () => _pageController.previousPage(
-                duration: const Duration(milliseconds: 280),
-                curve: Curves.easeInOut),
-          ),
+          chevron(
+              Icons.chevron_left,
+              () => _pageController.previousPage(
+                  duration: const Duration(milliseconds: 280),
+                  curve: Curves.easeInOut)),
           Expanded(
             child: Center(
               child: Text(
@@ -696,13 +707,11 @@ class _TodoScreenState extends State<TodoScreen> {
               ),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right, size: 22),
-            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-            onPressed: () => _pageController.nextPage(
-                duration: const Duration(milliseconds: 280),
-                curve: Curves.easeInOut),
-          ),
+          chevron(
+              Icons.chevron_right,
+              () => _pageController.nextPage(
+                  duration: const Duration(milliseconds: 280),
+                  curve: Curves.easeInOut)),
         ],
       ),
     );
@@ -710,8 +719,10 @@ class _TodoScreenState extends State<TodoScreen> {
 
   // ─── 주간 달력 ───────────────────────────────────────────────────────────────
   Widget _buildWeekPager() {
+    final landscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
     return SizedBox(
-      height: 80,
+      height: landscape ? 56 : 80,
       child: PageView.builder(
         controller: _pageController,
         onPageChanged: _onPageChanged,
@@ -721,6 +732,11 @@ class _TodoScreenState extends State<TodoScreen> {
   }
 
   Widget _buildWeekRow(DateTime sunday) {
+    final landscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final circle = landscape ? 28.0 : 36.0;
+    final gapTop = landscape ? 3.0 : 6.0;
+    final gapBot = landscape ? 2.0 : 5.0;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Row(
@@ -750,11 +766,11 @@ class _TodoScreenState extends State<TodoScreen> {
                 children: [
                   Text(_dayLabels[i],
                       style: TextStyle(fontSize: 11, color: labelColor)),
-                  const SizedBox(height: 6),
+                  SizedBox(height: gapTop),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
-                    width: 36,
-                    height: 36,
+                    width: circle,
+                    height: circle,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: isSelected
@@ -779,7 +795,7 @@ class _TodoScreenState extends State<TodoScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 5),
+                  SizedBox(height: gapBot),
                   AnimatedContainer(
                     duration: const Duration(milliseconds: 200),
                     width: 4,

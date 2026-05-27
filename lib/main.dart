@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz_local;
@@ -13,6 +14,9 @@ import 'screens/onboarding_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 세로 모드 고정 (가로 회전 비활성화)
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
   // Supabase 초기화
   await Supabase.initialize(
