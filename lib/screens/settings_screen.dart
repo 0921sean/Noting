@@ -2,8 +2,6 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../database/database_helper.dart';
-import '../services/supabase_service.dart';
 import '../services/notification_service.dart';
 import 'auth_screen.dart';
 
@@ -18,7 +16,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _hour = 9;
   int _minute = 0;
   bool _loading = true;
-  bool _migrating = false;
 
   String get _userEmail =>
       Supabase.instance.client.auth.currentUser?.email ?? '';
@@ -37,96 +34,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _minute = prefs.getInt('notif_minute') ?? 0;
       _loading = false;
     });
-  }
-
-  // ─── 기기 이전 ────────────────────────────────────────────────────────────────
-  Future<void> _migrateLocalToCloud() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Theme.of(context).colorScheme.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('이전 데이터 업로드',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-        content: const Text(
-          '이 기기의 기존 메모·투두·시간 기록을 클라우드에 올려요.\n처음 로그인한 기기에서 한 번만 하면 돼요.',
-          style: TextStyle(fontSize: 14, height: 1.6),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('취소',
-                style: TextStyle(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onSurface
-                        .withOpacity(0.5))),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text('업로드',
-                style: TextStyle(
-                    color: Theme.of(context).colorScheme.primary)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    setState(() => _migrating = true);
-    try {
-      final notes = await DatabaseHelper.instance.readAllNotes();
-      final todos = await DatabaseHelper.instance.readAllTodos();
-      for (final n in notes) {
-        await SupabaseService.importNote(n.toMap());
-      }
-      for (final t in todos) {
-        await SupabaseService.importTodo(t.toMap());
-      }
-
-      // 시간 기록 마이그레이션
-      int timeRecordCount = 0;
-      final localTimeRecords =
-          await DatabaseHelper.instance.readAllTimeRecordsRaw();
-      if (localTimeRecords.isNotEmpty) {
-        final cloudTodos = await SupabaseService.readAllTodos();
-        final todoMap = <String, int>{};
-        for (final t in cloudTodos) {
-          if (t.id != null) todoMap['${t.text}|${t.date}'] = t.id!;
-        }
-        for (final row in localTimeRecords) {
-          final key = '${row['text']}|${row['date']}';
-          final cloudTodoId = todoMap[key];
-          if (cloudTodoId == null) continue;
-          try {
-            final rec = await SupabaseService.createTimeRecord(
-                cloudTodoId, row['start_time'] as String);
-            final endTime = row['end_time'] as String?;
-            if (endTime != null && rec.id != null) {
-              await SupabaseService.finishTimeRecord(rec.id!, endTime);
-            }
-            timeRecordCount++;
-          } catch (_) {}
-        }
-      }
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-            '업로드 완료 — 메모 ${notes.length}개, 투두 ${todos.length}개, 시간 기록 $timeRecordCount개'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 4),
-      ));
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('업로드 실패: $e'),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 6),
-      ));
-    } finally {
-      if (mounted) setState(() => _migrating = false);
-    }
   }
 
   // ─── 알림 ─────────────────────────────────────────────────────────────────
@@ -311,40 +218,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 28),
                   ],
-
-                  // ── 기기 이전 ─────────────────────────────────────────────
-                  const _SectionLabel(label: '기기 이전'),
-                  const SizedBox(height: 8),
-                  _WarmCard(
-                    children: [
-                      _migrating
-                          ? const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 18),
-                              child: Center(
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    SizedBox(
-                                      width: 16, height: 16,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2),
-                                    ),
-                                    SizedBox(width: 10),
-                                    Text('업로드 중...',
-                                        style: TextStyle(fontSize: 14)),
-                                  ],
-                                ),
-                              ),
-                            )
-                          : _WarmTile(
-                              icon: Icons.cloud_upload_outlined,
-                              title: '이전 데이터 클라우드에 올리기',
-                              subtitle: '이전 버전 앱을 쓰던 경우에만 필요해요',
-                              onTap: _migrateLocalToCloud,
-                            ),
-                    ],
-                  ),
-                  const SizedBox(height: 28),
 
                   // ── 정보 ──────────────────────────────────────────────────
                   const _SectionLabel(label: '정보'),

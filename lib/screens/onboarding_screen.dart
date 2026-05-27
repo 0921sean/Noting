@@ -13,29 +13,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _controller = PageController();
   int _page = 0;
 
+  // 컨셉만 짧게 소개하고, 구체적인 버튼/제스처는 홈 화면 코치마크로 안내한다.
   static const _pages = [
     _OnboardingPage(
       emoji: '✦',
       title: '생각을 바로 기록해요',
-      description: '아래 입력창에 지금 드는 생각을 적어요.\n나중에 알림으로 다시 만나게 될 거예요.',
+      description: '지금 드는 생각을 적어두면\n나중에 알림으로 다시 만나게 될 거예요.',
       highlight: null,
-    ),
-    _OnboardingPage(
-      emoji: '☑',
-      title: '오늘 할 일을 관리해요',
-      description: '투두 탭에서 할 일을 추가하고\n드래그로 순서를 바꿀 수 있어요.',
-      highlight: null,
-    ),
-    _OnboardingPage(
-      emoji: '▶',
-      title: '타이머로 시간을 기록해요',
-      description: '할 일 옆 ▶ 를 누르면 지금 시각이 시작시간으로 기록돼요.\n다시 누르면 종료시간까지 자동으로 저장해요.',
-      highlight: '09:23~ +14분',
     ),
     _OnboardingPage(
       emoji: '🗓',
-      title: '오늘의 플래너를 확인해요',
-      description: '날짜 옆 "플래너" 버튼을 누르면\n색깔 시간표가 생성돼요.\n공유 버튼으로 인스타 스토리에 바로 올릴 수 있어요.',
+      title: '할 일과 플래너로 하루를 관리해요',
+      description: '투두 탭에서 할 일을 추가하고 ▶ 로 시간을 기록해요.\n플래너로 색깔 시간표를 만들어 공유할 수 있어요.',
       highlight: null,
     ),
   ];

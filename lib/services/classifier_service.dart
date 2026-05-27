@@ -62,10 +62,14 @@ class ClassifierService {
     }
   }
 
-  /// 메모 전체를 분석해서 적절한 카테고리를 자동 생성하고 분류.
-  /// 반환: 카테고리 목록 + 각 note id 별 카테고리 배정.
+  /// 메모를 분석해서 카테고리에 배정. 기존 카테고리에 가능한 한 배정하고,
+  /// 잘 안 맞는 메모가 있으면 새 카테고리를 만든다.
+  /// [existing]은 보존할 기존 카테고리 목록.
+  /// 반환: 카테고리 목록(기존 + 새로 만든 것) + 각 note id 별 카테고리 배정.
   static Future<AutoCategoryResult?> autoGenerateCategories(
-      List<Note> notes) async {
+      List<Note> notes, {
+    List<String> existing = const [],
+  }) async {
     if (notes.isEmpty) return null;
 
     // 메모가 많으면 일부만 사용 (max 80개, 내용은 120자까지)
@@ -77,12 +81,30 @@ class ClassifierService {
       return '[${n.id}] $content';
     }).join('\n');
 
-    const prompt = '''아래는 사용자의 메모 목록이야. 전체 내용을 읽고 적절한 한국어 카테고리를 만들어서 각 메모를 분류해줘.
+    final prompt = existing.isEmpty
+        ? '''아래는 사용자의 메모 목록이야. 전체 내용을 읽고 적절한 한국어 카테고리를 만들어서 각 메모를 분류해줘.
 
 규칙:
 - 카테고리는 3~6개 (너무 세분화 금지, 큰 주제로 묶기)
 - 카테고리 이름은 한국어 2~5글자
 - 모든 메모에 카테고리 배정 (id 기준)
+- 다른 텍스트 없이 JSON만 응답
+
+응답 형식:
+{"categories":["카테고리1","카테고리2"],"assignments":{"메모id":"카테고리명",...}}
+
+메모 목록:
+'''
+        : '''아래는 사용자의 메모 목록이야. 각 메모를 카테고리로 분류해줘.
+
+기존 카테고리: ${existing.join(', ')}
+
+규칙:
+- 가능하면 위 기존 카테고리 중 하나에 배정해.
+- 기존 카테고리에 정말 안 맞는 메모만 새 카테고리를 만들어 (꼭 필요할 때만, 한국어 2~5글자).
+- 새 카테고리는 최소화하고, 전체 카테고리가 너무 많아지지 않게.
+- 모든 메모에 카테고리 배정 (id 기준)
+- categories에는 기존 카테고리 + 새로 만든 카테고리를 모두 포함
 - 다른 텍스트 없이 JSON만 응답
 
 응답 형식:
@@ -122,7 +144,12 @@ class ClassifierService {
       if (match == null) return null;
 
       final parsed = jsonDecode(match.group(0)!) as Map<String, dynamic>;
-      final categories = (parsed['categories'] as List).cast<String>();
+      final returned = (parsed['categories'] as List).cast<String>();
+      // 기존 카테고리를 먼저, 그 뒤에 새로 생긴 것만 이어붙임 (순서·보존 보장)
+      final categories = <String>[
+        ...existing,
+        ...returned.where((c) => !existing.contains(c)),
+      ];
       final raw = (parsed['assignments'] as Map<String, dynamic>);
       final assignments = <int, String>{};
       for (final entry in raw.entries) {

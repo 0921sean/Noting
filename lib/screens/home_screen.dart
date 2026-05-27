@@ -1,6 +1,9 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:showcaseview/showcaseview.dart';
+import '../utils/coach_mark.dart';
 import '../services/supabase_service.dart';
 import '../models/note.dart';
 import '../services/category_service.dart';
@@ -38,6 +41,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<String> _categories = [];
   bool _loading = true;
   bool _classifying = false;
+  bool _dragging = false; // 카테고리 드래그 중 (삭제 영역 표시용)
+
+  // 첫 진입 코치마크 (showcaseview)
+  final _addKey = GlobalKey();
+  final _aiKey = GlobalKey();
+  final _catKey = GlobalKey();
+  bool _coachDone = true; // 기본은 '봤음'으로 두고, prefs 확인 후에만 false
+  bool _coachStarted = false;
 
   _AppMode _mode = _AppMode.notes;
 
@@ -45,6 +56,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadCoachFlag();
     _loadAll().then((_) {
       _scheduleIfNeeded();
       if (widget.initialNoteId != null) {
@@ -54,6 +66,35 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     });
     NotificationService.instance.onNotificationTap = _openNoteById;
+  }
+
+  // 코치마크를 본 적 없으면(_coachDone=false) 첫 진입 시 한 번 띄운다.
+  Future<void> _loadCoachFlag() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => _coachDone = prefs.getBool('home_coachmark_done') ?? false);
+  }
+
+  Future<void> _persistCoachDone() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('home_coachmark_done', true);
+  }
+
+  void _maybeStartCoach(BuildContext ctx) {
+    if (_coachDone || _coachStarted || _loading || _mode != _AppMode.notes) {
+      return;
+    }
+    _coachStarted = true;
+    _persistCoachDone(); // 띄우는 순간 '봤음'으로 저장
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final keys = <GlobalKey>[
+        _addKey,
+        _aiKey,
+        if (_categories.isNotEmpty) _catKey,
+      ];
+      ShowCaseWidget.of(ctx).startShowCase(keys);
+    });
   }
 
   @override
@@ -96,14 +137,25 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   // ─── 자동분류 ────────────────────────────────────────────────────────────────
+  // 미분류 메모만 대상으로, 기존 카테고리는 유지하고 필요하면 새 카테고리를 추가한다.
   Future<void> _autoClassify() async {
-    if (_notes.isEmpty) return;
+    final uncategorized = _notes.where((n) => n.category == null).toList();
+    if (uncategorized.isEmpty) {
+      _showSnack('분류할 미분류 메모가 없어요');
+      return;
+    }
     setState(() => _classifying = true);
     try {
-      final result = await ClassifierService.autoGenerateCategories(_notes);
+      final result = await ClassifierService.autoGenerateCategories(
+        uncategorized,
+        existing: _categories,
+      );
       if (result == null || !mounted) return;
 
-      await _updateCategories(result.categories);
+      // 새 카테고리만 추가 (기존 카테고리는 보존, 삭제 없음)
+      for (final cat in result.categories) {
+        await CategoryService.add(cat);
+      }
       for (final entry in result.assignments.entries) {
         if (result.categories.contains(entry.value)) {
           await SupabaseService.updateNoteCategory(entry.key, entry.value);
@@ -111,32 +163,97 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       await _loadAll();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${result.categories.length}개 카테고리로 분류 완료'),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      _showSnack('미분류 메모 ${uncategorized.length}개를 분류했어요');
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('자동분류 실패. 다시 시도해봐요.')),
-      );
+      _showSnack('자동분류 실패. 다시 시도해봐요.');
     } finally {
       if (mounted) setState(() => _classifying = false);
     }
   }
 
-  Future<void> _updateCategories(List<String> newCats) async {
-    for (final cat in newCats) {
-      await CategoryService.add(cat);
+  // ─── 카테고리 직접 생성 ────────────────────────────────────────────────────────
+  Future<void> _addCategory() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => const _AddCategoryDialog(),
+    );
+    if (name == null || name.isEmpty) return;
+    if (name == '전체' || name == '미분류') {
+      _showSnack('그 이름은 사용할 수 없어요');
+      return;
     }
-    final current = await CategoryService.getAll();
-    for (final old in List.from(current)) {
-      if (!newCats.contains(old)) await CategoryService.remove(old);
+    if (_categories.contains(name)) {
+      _showSnack('이미 있는 카테고리예요');
+      return;
     }
+    await CategoryService.add(name);
+    await _loadAll();
+  }
+
+  void _showSnack(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+  }
+
+  // ─── 카테고리 순서 변경 / 삭제 ─────────────────────────────────────────────────
+  Future<void> _reorderCategory(int from, int to) async {
+    if (from < 0 || from >= _categories.length) return;
+    setState(() {
+      final item = _categories.removeAt(from);
+      final dest = (from < to ? to - 1 : to).clamp(0, _categories.length);
+      _categories.insert(dest, item);
+      _dragging = false;
+    });
+    await CategoryService.setAll(_categories);
+  }
+
+  Future<void> _confirmDeleteCategory(int index) async {
+    setState(() => _dragging = false);
+    if (index < 0 || index >= _categories.length) return;
+    final name = _categories[index];
+    final count = _notes.where((n) => n.category == name).length;
+    final cs = Theme.of(context).colorScheme;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: cs.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text("'$name' 삭제",
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        content: Text(
+          count > 0
+              ? '이 카테고리의 메모 $count개는 미분류로 옮겨져요.'
+              : '이 카테고리를 삭제할까요?',
+          style: const TextStyle(fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('취소',
+                style: TextStyle(color: cs.onSurface.withOpacity(0.5))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('삭제', style: TextStyle(color: cs.error)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    // 해당 카테고리 메모를 미분류로
+    for (final n in _notes.where((n) => n.category == name)) {
+      if (n.id != null) await SupabaseService.updateNoteCategory(n.id!, null);
+    }
+    await CategoryService.remove(name);
+    await _loadAll();
+    _showSnack(count > 0 ? "'$name' 삭제 · 메모 $count개는 미분류로" : "'$name' 삭제됨");
   }
 
   // ─── 네비게이션 ──────────────────────────────────────────────────────────────
@@ -180,6 +297,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   // ─── 빌드 ─────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    return ShowCaseWidget(
+      disableBarrierInteraction: true,
+      builder: (ctx) {
+        _maybeStartCoach(ctx);
+        return _buildScaffold();
+      },
+    );
+  }
+
+  Widget _buildScaffold() {
     return Scaffold(
       body: SafeArea(
         child: Column(
@@ -277,6 +404,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           const Spacer(),
           if (_mode == _AppMode.notes)
+            buildCoachMark(
+              context: context,
+              key: _addKey,
+              title: '카테고리 추가',
+              description: '여기를 눌러 카테고리를 직접 만들 수 있어요.',
+              targetShapeBorder: const CircleBorder(),
+              targetPadding: const EdgeInsets.all(4),
+              child: IconButton(
+                icon: Icon(Icons.add_rounded,
+                    size: 24, color: cs.onSurface.withOpacity(0.5)),
+                tooltip: '카테고리 추가',
+                onPressed: _addCategory,
+              ),
+            ),
+          if (_mode == _AppMode.notes)
             _classifying
                 ? Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -286,11 +428,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           strokeWidth: 2, color: cs.primary),
                     ),
                   )
-                : IconButton(
-                    icon: Icon(Icons.auto_awesome_outlined,
-                        size: 20, color: cs.onSurface.withOpacity(0.5)),
-                    tooltip: 'AI 자동분류',
-                    onPressed: _autoClassify,
+                : buildCoachMark(
+                    context: context,
+                    key: _aiKey,
+                    title: 'AI 자동분류',
+                    description: '미분류 메모를 AI가 알아서 카테고리에 정리해줘요.',
+                    targetShapeBorder: const CircleBorder(),
+                    targetPadding: const EdgeInsets.all(4),
+                    child: IconButton(
+                      icon: Icon(Icons.auto_awesome_outlined,
+                          size: 20, color: cs.onSurface.withOpacity(0.5)),
+                      tooltip: 'AI 자동분류',
+                      onPressed: _autoClassify,
+                    ),
                   ),
           IconButton(
             icon: Icon(Icons.settings_outlined,
@@ -323,6 +473,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             category: e.value,
             count: counts[e.value] ?? 0,
             color: _cardColors[e.key % _cardColors.length],
+            catIndex: e.key,
           )),
       _CategoryItem(
           label: '미분류',
@@ -349,7 +500,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   color: Theme.of(context).colorScheme.onSurface.withOpacity(0.45),
                 )),
             const SizedBox(height: 6),
-            Text('✨ 버튼으로 카테고리를 만들거나\n카테고리를 탭해서 메모를 추가해봐요',
+            Text('＋ 버튼으로 카테고리를 만들거나\n카테고리를 탭해서 메모를 추가해봐요',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
@@ -361,7 +512,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       );
     }
 
-    return GridView.builder(
+    final grid = GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
@@ -370,7 +521,133 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         childAspectRatio: 1.35,
       ),
       itemCount: items.length,
-      itemBuilder: (_, i) => _buildCategoryCard(items[i]),
+      itemBuilder: (_, i) => _buildCategoryCell(items[i]),
+    );
+
+    return Column(
+      children: [
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: _dragging
+              ? _buildDeleteZone()
+              : const SizedBox(width: double.infinity),
+        ),
+        Expanded(child: grid),
+      ],
+    );
+  }
+
+  // 카테고리 카드를 드래그(순서변경/삭제) 가능하게 감싼다. 전체/미분류는 고정.
+  Widget _buildCategoryCell(_CategoryItem item) {
+    final card = _buildCategoryCard(item);
+    final idx = item.catIndex;
+    if (idx == null) return card;
+
+    Widget cell = LongPressDraggable<int>(
+      data: idx,
+      onDragStarted: () {
+        HapticFeedback.mediumImpact();
+        setState(() => _dragging = true);
+      },
+      onDragEnd: (_) => setState(() => _dragging = false),
+      onDraggableCanceled: (_, __) => setState(() => _dragging = false),
+      feedback: _dragFeedback(item),
+      childWhenDragging: Opacity(opacity: 0.25, child: card),
+      child: DragTarget<int>(
+        onWillAcceptWithDetails: (d) => d.data != idx,
+        onAcceptWithDetails: (d) => _reorderCategory(d.data, idx),
+        builder: (_, candidate, __) {
+          final cs = Theme.of(context).colorScheme;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: candidate.isNotEmpty
+                  ? Border.all(color: cs.primary, width: 2)
+                  : Border.all(color: Colors.transparent, width: 2),
+            ),
+            child: card,
+          );
+        },
+      ),
+    );
+
+    // 첫 번째 사용자 카테고리 카드에 코치마크를 단다.
+    if (idx == 0) {
+      cell = buildCoachMark(
+        context: context,
+        key: _catKey,
+        title: '카테고리 정리',
+        description: '카드를 길게 누르면 드래그로 순서를 바꾸거나,\n위에 나타나는 영역에 놓아 삭제할 수 있어요.',
+        targetShapeBorder: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(16)),
+        ),
+        child: cell,
+      );
+    }
+    return cell;
+  }
+
+  Widget _dragFeedback(_CategoryItem item) {
+    final w = (MediaQuery.of(context).size.width - 40 - 12) / 2;
+    return Material(
+      color: Colors.transparent,
+      child: Transform.rotate(
+        angle: -0.02,
+        child: SizedBox(
+          width: w,
+          height: w / 1.35,
+          child: DefaultTextStyle(
+            style: const TextStyle(),
+            child: Opacity(opacity: 0.95, child: _buildCategoryCard(item)),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeleteZone() {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+      child: DragTarget<int>(
+        onWillAcceptWithDetails: (_) => true,
+        onAcceptWithDetails: (d) => _confirmDeleteCategory(d.data),
+        builder: (_, candidate, __) {
+          final active = candidate.isNotEmpty;
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            height: 52,
+            decoration: BoxDecoration(
+              color: cs.error.withOpacity(active ? 0.18 : 0.07),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: cs.error.withOpacity(active ? 0.7 : 0.25),
+                width: active ? 1.5 : 1,
+              ),
+            ),
+            child: Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.delete_outline,
+                      size: 20, color: cs.error.withOpacity(0.85)),
+                  const SizedBox(width: 8),
+                  Text(
+                    active ? '놓으면 삭제' : '여기로 끌어서 삭제',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: cs.error.withOpacity(0.9),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -438,6 +715,7 @@ class _CategoryItem {
   final int count;
   final Color? color;
   final bool isUncategorized;
+  final int? catIndex; // _categories 내 인덱스 (사용자 카테고리만, 드래그용)
 
   const _CategoryItem({
     required this.label,
@@ -445,5 +723,66 @@ class _CategoryItem {
     required this.count,
     this.color,
     this.isUncategorized = false,
+    this.catIndex,
   });
+}
+
+// 컨트롤러를 자체 소유/해제해서 dispose 레이스를 방지하는 카테고리 추가 다이얼로그.
+class _AddCategoryDialog extends StatefulWidget {
+  const _AddCategoryDialog();
+
+  @override
+  State<_AddCategoryDialog> createState() => _AddCategoryDialogState();
+}
+
+class _AddCategoryDialogState extends State<_AddCategoryDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() => Navigator.of(context).pop(_controller.text.trim());
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return AlertDialog(
+      backgroundColor: cs.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('새 카테고리',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        maxLength: 20,
+        textInputAction: TextInputAction.done,
+        decoration: InputDecoration(
+          hintText: '카테고리 이름',
+          counterText: '',
+          hintStyle: TextStyle(color: cs.onSurface.withOpacity(0.3)),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide(color: cs.primary),
+          ),
+        ),
+        style: const TextStyle(fontSize: 15),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text('취소',
+              style: TextStyle(color: cs.onSurface.withOpacity(0.5))),
+        ),
+        TextButton(
+          onPressed: _submit,
+          child: Text('추가', style: TextStyle(color: cs.primary)),
+        ),
+      ],
+    );
+  }
 }

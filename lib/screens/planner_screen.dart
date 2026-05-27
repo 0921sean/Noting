@@ -12,6 +12,9 @@ import '../utils/planner_colors.dart';
 
 const _kBg = Color(0xFFF0EFF8);
 
+// 분 단위 시각을 10분 단위로 반올림 (플래너 셀 경계 정렬 → 경계 겹침 방지)
+int _round10(int minutes) => ((minutes + 5) ~/ 10) * 10;
+
 class PlannerScreen extends StatefulWidget {
   final DateTime date;
   final List<Todo> todos;
@@ -146,14 +149,15 @@ class _PlannerScreenState extends State<PlannerScreen> {
       // TimeRecord 기반 (타이머 기록)
       final records = widget.timeRecords[id] ?? [];
       for (final r in records) {
-        final s = r.startMinutes;
-        final e = r.endMinutes ?? s + 60;
+        // 시작·끝을 10분 단위로 반올림해서 셀 경계에서 색이 겹치지 않게 함
+        final s = _round10(r.startMinutes);
+        final e = _round10(r.endMinutes ?? r.startMinutes + 60);
         if (e > s) ranges.add(_TimeRange(id, s, e));
       }
       // 레거시: todo.startTime/endTime (수동 입력, TimeRecord 없을 때만)
       if (records.isEmpty && todo.startMinutes != null) {
-        final s = todo.startMinutes!;
-        final e = todo.endMinutes ?? s + 60;
+        final s = _round10(todo.startMinutes!);
+        final e = _round10(todo.endMinutes ?? todo.startMinutes! + 60);
         if (e > s) ranges.add(_TimeRange(id, s, e));
       }
     }

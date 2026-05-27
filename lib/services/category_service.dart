@@ -25,6 +25,11 @@ class CategoryService {
     await _save(cats);
   }
 
+  /// 전체 목록을 통째로 저장 (순서 변경 등).
+  static Future<void> setAll(List<String> cats) async {
+    await _save(cats);
+  }
+
   static Future<void> _save(List<String> cats) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, jsonEncode(cats));

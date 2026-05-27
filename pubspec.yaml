@@ -10,9 +10,6 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.6
-  sqflite: ^2.3.0
-  sqflite_common_ffi_web: ^0.4.3+1
-  path: ^1.9.0
   flutter_local_notifications: ^17.0.0
   timezone: ^0.9.4
   flutter_timezone: ^1.0.4
@@ -23,6 +20,7 @@ dependencies:
   path_provider: ^2.1.0
   share_plus: ^10.0.0
   supabase_flutter: ^2.12.4
+  showcaseview: ^5.0.2
 
 dev_dependencies:
   flutter_test:

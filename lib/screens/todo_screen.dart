@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:showcaseview/showcaseview.dart';
 import '../services/supabase_service.dart';
 import '../models/todo.dart';
 import '../models/time_record.dart';
 import '../services/notification_service.dart';
 import '../utils/planner_colors.dart';
+import '../utils/coach_mark.dart';
 import 'planner_screen.dart';
 
 class TodoScreen extends StatefulWidget {
@@ -39,6 +42,14 @@ class _TodoScreenState extends State<TodoScreen> {
   // 날짜별 시간 기록 (todoId → List<TimeRecord>)
   Map<int, List<TimeRecord>> _timeRecords = {};
 
+  // 첫 진입 코치마크
+  final _addKey = GlobalKey();
+  final _copyKey = GlobalKey();
+  final _plannerKey = GlobalKey();
+  final _timerKey = GlobalKey();
+  bool _coachDone = true;
+  bool _coachStarted = false;
+
   // ─── 날짜 유틸 ──────────────────────────────────────────────────────────────
   static DateTime _today() {
     final n = DateTime.now();
@@ -59,7 +70,35 @@ class _TodoScreenState extends State<TodoScreen> {
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: _kBase);
+    _loadCoachFlag();
     _load();
+  }
+
+  Future<void> _loadCoachFlag() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => _coachDone = prefs.getBool('todo_coachmark_done') ?? false);
+  }
+
+  Future<void> _persistCoachDone() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('todo_coachmark_done', true);
+  }
+
+  void _maybeStartCoach(BuildContext ctx) {
+    if (_coachDone || _coachStarted || _loading) return;
+    _coachStarted = true;
+    _persistCoachDone();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final keys = <GlobalKey>[
+        _addKey,
+        _copyKey,
+        _plannerKey,
+        if (_selTodos.isNotEmpty) _timerKey,
+      ];
+      ShowCaseWidget.of(ctx).startShowCase(keys);
+    });
   }
 
   @override
@@ -356,10 +395,14 @@ class _TodoScreenState extends State<TodoScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
                 children: [
-                  Text(todo.text,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600)),
-                  const Spacer(),
+                  Expanded(
+                    child: Text(todo.text,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w600)),
+                  ),
+                  const SizedBox(width: 8),
                   Text('${records.length}회 기록',
                       style: TextStyle(
                           fontSize: 12,
@@ -602,6 +645,7 @@ class _TodoScreenState extends State<TodoScreen> {
   // ─── 빌드 ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    _maybeStartCoach(context);
     return GestureDetector(
       onTap: () {
         FocusScope.of(context).unfocus();
@@ -800,26 +844,42 @@ class _TodoScreenState extends State<TodoScreen> {
                 )),
           ],
           const Spacer(),
-          IconButton(
-            icon: Icon(Icons.copy_outlined,
-                size: 18,
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withOpacity(0.38)),
-            onPressed: _copyFromYesterday,
-            tooltip: '어제 할 일 가져오기',
+          buildCoachMark(
+            context: context,
+            key: _copyKey,
+            title: '어제 할 일 가져오기',
+            description: '어제 끝내지 못한 할 일을\n오늘 목록으로 한 번에 옮겨와요.',
+            targetShapeBorder: const CircleBorder(),
+            child: IconButton(
+              icon: Icon(Icons.copy_outlined,
+                  size: 18,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurface
+                      .withOpacity(0.38)),
+              onPressed: _copyFromYesterday,
+              tooltip: '어제 할 일 가져오기',
+            ),
           ),
-          TextButton.icon(
-            onPressed: _openPlanner,
-            icon: const Icon(Icons.grid_view_rounded, size: 15),
-            label: const Text('플래너'),
-            style: TextButton.styleFrom(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              visualDensity: VisualDensity.compact,
-              textStyle: const TextStyle(
-                  fontSize: 12, fontWeight: FontWeight.w600),
+          buildCoachMark(
+            context: context,
+            key: _plannerKey,
+            title: '플래너',
+            description: '하루를 색깔 시간표로 만들어\n인스타 스토리 등에 바로 공유할 수 있어요.',
+            targetShapeBorder: const RoundedRectangleBorder(
+              borderRadius: BorderRadius.all(Radius.circular(10)),
+            ),
+            child: TextButton.icon(
+              onPressed: _openPlanner,
+              icon: const Icon(Icons.grid_view_rounded, size: 15),
+              label: const Text('플래너'),
+              style: TextButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                visualDensity: VisualDensity.compact,
+                textStyle: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w600),
+              ),
             ),
           ),
         ],
@@ -858,40 +918,29 @@ class _TodoScreenState extends State<TodoScreen> {
     final isEditing = _editingId == eid;
     final plannerColor = plannerColorAt(index);
 
-    return Dismissible(
+    // 항목을 길게 누르면 바로 드래그해서 순서를 바꿀 수 있다 (핸들 없음).
+    return ReorderableDelayedDragStartListener(
       key: ValueKey('todo-${todo.id}'),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (_) => _confirmDelete(),
-      onDismissed: (_) => _deleteTodo(todo),
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 8),
-        child: Icon(Icons.delete_outline,
-            size: 18,
-            color: Theme.of(context).colorScheme.error.withOpacity(0.55)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            // 드래그 핸들
-            ReorderableDragStartListener(
-              index: index,
-              child: Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: Icon(
-                  Icons.drag_indicator_outlined,
-                  size: 18,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withOpacity(0.22),
-                ),
-              ),
-            ),
-            // 체크박스
-            GestureDetector(
+      index: index,
+      child: Dismissible(
+        key: ValueKey('todo-dismiss-${todo.id}'),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (_) => _confirmDelete(),
+        onDismissed: (_) => _deleteTodo(todo),
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 8),
+          child: Icon(Icons.delete_outline,
+              size: 18,
+              color: Theme.of(context).colorScheme.error.withOpacity(0.55)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // 체크박스
+              GestureDetector(
               onTap: () => _toggleDone(todo),
               child: _buildCircleCheck(todo.done),
             ),
@@ -900,30 +949,7 @@ class _TodoScreenState extends State<TodoScreen> {
             if (!isEditing) ...[
               const SizedBox(width: 4),
               // ▶/⏹ 타이머 버튼 (36px 터치 타겟)
-              GestureDetector(
-                onTap: () => todo.id != null && _isRunning(todo.id!)
-                    ? _stopTimer(todo)
-                    : _startTimer(todo),
-                behavior: HitTestBehavior.opaque,
-                child: SizedBox(
-                  width: 36,
-                  height: 36,
-                  child: Center(
-                    child: Icon(
-                      todo.id != null && _isRunning(todo.id!)
-                          ? Icons.stop_circle_outlined
-                          : Icons.play_circle_outline,
-                      size: 18,
-                      color: todo.id != null && _isRunning(todo.id!)
-                          ? plannerColor
-                          : Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withOpacity(0.22),
-                    ),
-                  ),
-                ),
-              ),
+              _buildTimerButton(todo, index, plannerColor),
               // 시간 기록 뱃지 (기록이 있거나 타이머 실행 중일 때)
               if (todo.id != null && _hasTimeRecords(todo.id!)) ...[
                 const SizedBox(width: 4),
@@ -1026,9 +1052,41 @@ class _TodoScreenState extends State<TodoScreen> {
                 ),
               ),
             ),
-          ],
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  // ▶/⏹ 타이머 버튼. 첫 항목(index 0)에는 코치마크를 단다.
+  Widget _buildTimerButton(Todo todo, int index, Color plannerColor) {
+    final running = todo.id != null && _isRunning(todo.id!);
+    final button = GestureDetector(
+      onTap: () => running ? _stopTimer(todo) : _startTimer(todo),
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 36,
+        height: 36,
+        child: Center(
+          child: Icon(
+            running ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+            size: 18,
+            color: running
+                ? plannerColor
+                : Theme.of(context).colorScheme.onSurface.withOpacity(0.22),
+          ),
+        ),
+      ),
+    );
+    if (index != 0) return button;
+    return buildCoachMark(
+      context: context,
+      key: _timerKey,
+      title: '타이머로 시간 기록',
+      description: '▶ 를 누르면 시작 시각이 기록되고,\n다시 누르면 종료까지 자동 저장돼요.',
+      targetShapeBorder: const CircleBorder(),
+      child: button,
     );
   }
 
@@ -1057,19 +1115,27 @@ class _TodoScreenState extends State<TodoScreen> {
 
   // ─── 하단 입력창 ─────────────────────────────────────────────────────────────
   Widget _buildAddBar() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
-        border: Border(
-          top: BorderSide(
-              color: Theme.of(context).dividerColor, width: 0.5),
-        ),
+    return buildCoachMark(
+      context: context,
+      key: _addKey,
+      title: '할 일 추가',
+      description: '여기에 오늘 할 일을 적어 추가해요.',
+      targetShapeBorder: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
       ),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: [
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          border: Border(
+            top: BorderSide(
+                color: Theme.of(context).dividerColor, width: 0.5),
+          ),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Row(
+            children: [
             _buildCircleCheck(false),
             const SizedBox(width: 14),
             Expanded(
@@ -1113,7 +1179,8 @@ class _TodoScreenState extends State<TodoScreen> {
                     color: Theme.of(context).colorScheme.onPrimary),
               ),
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );
