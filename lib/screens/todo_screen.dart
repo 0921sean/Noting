@@ -131,7 +131,11 @@ class _TodoScreenState extends State<TodoScreen> {
       if (activeRecord != null) {
         _activeRecordIds[entry.key] = activeRecord.id!;
         _elapsedTicker ??= Timer.periodic(const Duration(seconds: 30), (_) {
-          if (mounted && _activeRecordIds.isNotEmpty) setState(() {});
+          if (!mounted) return;
+          if (_activeRecordIds.isNotEmpty) {
+            setState(() {});
+            _refreshTimerBanner();
+          }
         });
       }
     }
@@ -154,13 +158,15 @@ class _TodoScreenState extends State<TodoScreen> {
   // ─── 투두 nudge 알림 ─────────────────────────────────────────────────────────
   // 오늘 미완료 투두가 있으면 90분 타이머 예약, 없으면 취소.
   // _toggleDone(완료 방향)에서 호출 시 타이머가 지금 시각 기준으로 리셋됨.
+  // 단, 타이머가 진행 중이면 "지금 일하고 있는 중"이므로 nudge를 띄우지 않음.
   void _refreshNudge({bool completedNow = false}) {
     if (kIsWeb) return;
     final todayKey = _key(_today());
     if (_selKey != todayKey) return;
     final todayTodos = _byDate[todayKey] ?? [];
     final hasIncomplete = todayTodos.any((t) => !t.done);
-    if (!hasIncomplete) {
+    final timerRunning = _activeRecordIds.isNotEmpty;
+    if (!hasIncomplete || timerRunning) {
       NotificationService.instance.cancelNudge();
     } else if (completedNow || hasIncomplete) {
       NotificationService.instance.scheduleNudge();
@@ -296,8 +302,13 @@ class _TodoScreenState extends State<TodoScreen> {
         await SupabaseService.createTimeRecord(todo.id!, s);
     if (!mounted) return;
     _timerStartTimes[todo.id!] = DateTime.now();
+    // 30초마다 경과시간 갱신 + 알림 배너 재게시(스와이프 해제 시 자동 복귀)
     _elapsedTicker ??= Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted && _activeRecordIds.isNotEmpty) setState(() {});
+      if (!mounted) return;
+      if (_activeRecordIds.isNotEmpty) {
+        setState(() {});
+        _refreshTimerBanner();
+      }
     });
     setState(() {
       _activeRecordIds[todo.id!] = record.id!;
@@ -306,6 +317,7 @@ class _TodoScreenState extends State<TodoScreen> {
           .add(record);
     });
     _refreshTimerBanner();
+    _refreshNudge(); // 타이머 시작 → nudge 끔
   }
 
   Future<void> _stopTimer(Todo todo) async {
@@ -331,6 +343,7 @@ class _TodoScreenState extends State<TodoScreen> {
       }
     });
     _refreshTimerBanner();
+    _refreshNudge(); // 타이머 종료 → nudge 다시 켜질 수 있음
   }
 
   // 현재 실행 중인 모든 타이머를 모아 상단 알림 배너를 갱신.
@@ -589,7 +602,11 @@ class _TodoScreenState extends State<TodoScreen> {
         _activeRecordIds[todo.id!] = record.id!;
         _timerStartTimes[todo.id!] = DateTime.now();
         _elapsedTicker ??= Timer.periodic(const Duration(seconds: 30), (_) {
-          if (mounted && _activeRecordIds.isNotEmpty) setState(() {});
+          if (!mounted) return;
+          if (_activeRecordIds.isNotEmpty) {
+            setState(() {});
+            _refreshTimerBanner();
+          }
         });
       }
     });
