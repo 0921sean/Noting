@@ -6,12 +6,15 @@ import '../services/supabase_service.dart';
 
 // Callback type for when user taps a notification while app is running
 typedef NotificationTapCallback = void Function(int noteId);
+typedef VoidNotificationCallback = void Function();
 
 class NotificationService {
   static final NotificationService instance = NotificationService._();
   final _plugin = FlutterLocalNotificationsPlugin();
 
   NotificationTapCallback? onNotificationTap;
+  // 자정 플래너 알림을 탭했을 때 호출 (앱 실행 중)
+  VoidNotificationCallback? onPlannerReminderTap;
   bool _scheduling = false;
 
   NotificationService._();
@@ -22,10 +25,14 @@ class NotificationService {
   static const _todoChannelName = 'Noting 투두';
   static const _timerChannelId = 'noting_timer';
   static const _timerChannelName = 'Noting 진행 중';
+  static const _plannerChannelId = 'noting_planner';
+  static const _plannerChannelName = 'Noting 플래너 알림';
+  static const _plannerNotifId = 996;
   static const _nudgeNotifId = 997;
   static const _timerNotifId = 998;
   static const _nudgeMinutes = 90;
   static const _channelDesc = '예전 메모를 다시 보여줍니다';
+  static const _plannerPayload = 'planner';
 
   // 하루에 알림을 띄울 시각 오프셋 (사용자가 설정한 hour 기준)
   // 예: hour=9 → 9시, 15시, 20시
@@ -47,10 +54,13 @@ class NotificationService {
 
   void _handleResponse(NotificationResponse response) {
     final payload = response.payload;
-    if (payload != null) {
-      final noteId = int.tryParse(payload);
-      if (noteId != null) onNotificationTap?.call(noteId);
+    if (payload == null) return;
+    if (payload == _plannerPayload) {
+      onPlannerReminderTap?.call();
+      return;
     }
+    final noteId = int.tryParse(payload);
+    if (noteId != null) onNotificationTap?.call(noteId);
   }
 
   // Background taps are handled on next app open via getNotificationAppLaunchDetails
@@ -83,6 +93,13 @@ class NotificationService {
     if (details == null || !details.didNotificationLaunchApp) return null;
     final payload = details.notificationResponse?.payload;
     return payload != null ? int.tryParse(payload) : null;
+  }
+
+  // 콜드 스타트 시 자정 플래너 알림 탭으로 열렸는지 확인.
+  Future<bool> wasLaunchedByPlannerReminder() async {
+    final details = await _plugin.getNotificationAppLaunchDetails();
+    if (details == null || !details.didNotificationLaunchApp) return false;
+    return details.notificationResponse?.payload == _plannerPayload;
   }
 
   // 하루 3번(기본 9시/15시/20시) 각각 다른 옛 메모로 알림을 예약한다.
@@ -195,6 +212,48 @@ class NotificationService {
   }
 
   Future<void> cancelNudge() async => _plugin.cancel(_nudgeNotifId);
+
+  // ─── 매일 자정 플래너 작성 알림 ────────────────────────────────────────────────
+  // 자정에 매일 반복 — '오늘의 플래너 짜자'고 상기.
+  Future<void> scheduleMidnightPlannerReminder() async {
+    final now = tz.TZDateTime.now(tz.local);
+    var firstFire =
+        tz.TZDateTime(tz.local, now.year, now.month, now.day, 0, 0);
+    if (!firstFire.isAfter(now)) {
+      firstFire = firstFire.add(const Duration(days: 1));
+    }
+    try {
+      await _plugin.zonedSchedule(
+        _plannerNotifId,
+        '오늘의 플래너 ✨',
+        '오늘 할 일을 정리하고 플래너를 만들어볼까요?',
+        firstFire,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _plannerChannelId,
+            _plannerChannelName,
+            channelDescription: '매일 자정 플래너 작성 알림',
+            importance: Importance.high,
+            priority: Priority.high,
+            visibility: NotificationVisibility.private,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: false,
+            presentSound: true,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+        matchDateTimeComponents: DateTimeComponents.time, // 매일 같은 시각에 반복
+        payload: _plannerPayload,
+      );
+    } catch (_) {}
+  }
+
+  Future<void> cancelMidnightPlannerReminder() =>
+      _plugin.cancel(_plannerNotifId);
 
   // ─── 진행 중 타이머 상단 알림 배너 ─────────────────────────────────────────────
   // 타이머 켜진 동안 상단/잠금화면에 표시해서 종료 깜빡 잊는 걸 방지.

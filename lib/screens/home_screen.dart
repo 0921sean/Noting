@@ -31,7 +31,8 @@ const _cardColors = [
 
 class HomeScreen extends StatefulWidget {
   final int? initialNoteId;
-  const HomeScreen({super.key, this.initialNoteId});
+  final bool startInTodos;
+  const HomeScreen({super.key, this.initialNoteId, this.startInTodos = false});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -52,11 +53,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _coachDone = true; // 기본은 '봤음'으로 두고, prefs 확인 후에만 false
   bool _coachStarted = false;
 
-  _AppMode _mode = _AppMode.notes;
+  late _AppMode _mode;
 
   @override
   void initState() {
     super.initState();
+    _mode = widget.startInTodos ? _AppMode.todos : _AppMode.notes;
     WidgetsBinding.instance.addObserver(this);
     _loadCoachFlag();
     _loadAll().then((_) {
@@ -68,6 +70,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     });
     NotificationService.instance.onNotificationTap = _openNoteById;
+    // 자정 플래너 알림 탭 시 투두 탭으로 전환
+    NotificationService.instance.onPlannerReminderTap = () {
+      if (!mounted) return;
+      setState(() => _mode = _AppMode.todos);
+    };
   }
 
   // 코치마크를 본 적 없으면(_coachDone=false) 첫 진입 시 한 번 띄운다.
@@ -103,6 +110,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     NotificationService.instance.onNotificationTap = null;
+    NotificationService.instance.onPlannerReminderTap = null;
     super.dispose();
   }
 

@@ -36,6 +36,8 @@ void main() async {
 
     // Notification init
     await NotificationService.instance.initialize();
+    // 매일 자정 플래너 알림 예약 (매번 호출해도 동일 ID로 덮어쓰기됨)
+    await NotificationService.instance.scheduleMidnightPlannerReminder();
   }
 
   final prefs = await SharedPreferences.getInstance();
@@ -45,6 +47,9 @@ void main() async {
   final launchNoteId = kIsWeb
       ? null
       : await NotificationService.instance.getLaunchNoteId();
+  final launchedByPlanner = kIsWeb
+      ? false
+      : await NotificationService.instance.wasLaunchedByPlannerReminder();
 
   final isLoggedIn =
       Supabase.instance.client.auth.currentSession != null;
@@ -53,6 +58,7 @@ void main() async {
     permissionAsked: permissionAsked,
     onboardingDone: onboardingDone,
     launchNoteId: launchNoteId,
+    launchedByPlanner: launchedByPlanner,
     isLoggedIn: isLoggedIn,
   ));
 }
@@ -62,6 +68,7 @@ class NotingApp extends StatelessWidget {
   final bool onboardingDone;
   final bool isLoggedIn;
   final int? launchNoteId;
+  final bool launchedByPlanner;
 
   const NotingApp({
     super.key,
@@ -69,6 +76,7 @@ class NotingApp extends StatelessWidget {
     required this.onboardingDone,
     required this.isLoggedIn,
     this.launchNoteId,
+    this.launchedByPlanner = false,
   });
 
   @override
@@ -82,6 +90,7 @@ class NotingApp extends StatelessWidget {
       home = _HomeWrapper(
         permissionAsked: permissionAsked,
         launchNoteId: launchNoteId,
+        launchedByPlanner: launchedByPlanner,
       );
     }
 
@@ -149,10 +158,12 @@ class NotingApp extends StatelessWidget {
 class _HomeWrapper extends StatefulWidget {
   final bool permissionAsked;
   final int? launchNoteId;
+  final bool launchedByPlanner;
 
   const _HomeWrapper({
     required this.permissionAsked,
     this.launchNoteId,
+    this.launchedByPlanner = false,
   });
 
   @override
@@ -210,6 +221,9 @@ class _HomeWrapperState extends State<_HomeWrapper> {
 
   @override
   Widget build(BuildContext context) {
-    return HomeScreen(initialNoteId: widget.launchNoteId);
+    return HomeScreen(
+      initialNoteId: widget.launchNoteId,
+      startInTodos: widget.launchedByPlanner,
+    );
   }
 }
