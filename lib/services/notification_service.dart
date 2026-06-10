@@ -20,9 +20,16 @@ class NotificationService {
   static const _channelName = 'Noting 리마인드';
   static const _todoChannelId = 'noting_todo';
   static const _todoChannelName = 'Noting 투두';
+  static const _timerChannelId = 'noting_timer';
+  static const _timerChannelName = 'Noting 진행 중';
   static const _nudgeNotifId = 997;
+  static const _timerNotifId = 998;
   static const _nudgeMinutes = 90;
   static const _channelDesc = '예전 메모를 다시 보여줍니다';
+
+  // 하루에 알림을 띄울 시각 오프셋 (사용자가 설정한 hour 기준)
+  // 예: hour=9 → 9시, 15시, 20시
+  static const _dailyOffsets = [0, 6, 11];
 
   Future<void> initialize() async {
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -78,8 +85,8 @@ class NotificationService {
     return payload != null ? int.tryParse(payload) : null;
   }
 
-  // Schedule up to 30 daily notifications, each with a different random note.
-  // Called on app open so content stays fresh.
+  // 하루 3번(기본 9시/15시/20시) 각각 다른 옛 메모로 알림을 예약한다.
+  // 앱이 열릴 때 호출 → 컨텐츠가 항상 신선.
   Future<void> scheduleReminders() async {
     if (_scheduling) return;
     _scheduling = true;
@@ -91,56 +98,57 @@ class NotificationService {
       final hour = prefs.getInt('notif_hour') ?? 9;
       final minute = prefs.getInt('notif_minute') ?? 0;
 
-      await _plugin.cancelAll();
+      // 메모 알림만 취소 (타이머/nudge는 유지). ID 범위 0..(maxDays*slots-1)
+      const maxDays = 20;
+      final slots = _dailyOffsets.length; // 3
+      for (int i = 0; i < maxDays * slots; i++) {
+        await _plugin.cancel(i);
+      }
 
       final shuffled = List.of(notes)..shuffle(Random());
-      final count = shuffled.length.clamp(1, 30);
       final now = tz.TZDateTime.now(tz.local);
+      final base =
+          tz.TZDateTime(tz.local, now.year, now.month, now.day, hour, minute);
 
-      for (int i = 0; i < count; i++) {
-        final note = shuffled[i % shuffled.length];
-        final preview = note.content.length > 120
-            ? '${note.content.substring(0, 120)}...'
-            : note.content;
-
-        // Start from tomorrow (day 1), each subsequent day +1
-        final scheduled = tz.TZDateTime(
-          tz.local,
-          now.year,
-          now.month,
-          now.day,
-          hour,
-          minute,
-        ).add(Duration(days: i + 1));
-
-        try {
-          await _plugin.zonedSchedule(
-            i,
-            '기억하고 있어? 💭',
-            preview,
-            scheduled,
-            const NotificationDetails(
-              android: AndroidNotificationDetails(
-                _channelId,
-                _channelName,
-                channelDescription: _channelDesc,
-                importance: Importance.high,
-                priority: Priority.high,
-                visibility: NotificationVisibility.private,
+      int idx = 0;
+      for (int d = 1; d <= maxDays; d++) {
+        for (int s = 0; s < slots; s++) {
+          final note = shuffled[idx % shuffled.length];
+          final scheduled =
+              base.add(Duration(days: d, hours: _dailyOffsets[s]));
+          final preview = note.content.length > 120
+              ? '${note.content.substring(0, 120)}...'
+              : note.content;
+          try {
+            await _plugin.zonedSchedule(
+              d * slots + s,
+              '기억하고 있어? 💭',
+              preview,
+              scheduled,
+              const NotificationDetails(
+                android: AndroidNotificationDetails(
+                  _channelId,
+                  _channelName,
+                  channelDescription: _channelDesc,
+                  importance: Importance.high,
+                  priority: Priority.high,
+                  visibility: NotificationVisibility.private,
+                ),
+                iOS: DarwinNotificationDetails(
+                  presentAlert: true,
+                  presentBadge: false,
+                  presentSound: true,
+                ),
               ),
-              iOS: DarwinNotificationDetails(
-                presentAlert: true,
-                presentBadge: false,
-                presentSound: true,
-              ),
-            ),
-            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-            uiLocalNotificationDateInterpretation:
-                UILocalNotificationDateInterpretation.absoluteTime,
-            payload: note.id.toString(),
-          );
-        } catch (_) {
-          // exactAllowWhileIdle may be restricted on this device; skip slot
+              androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+              uiLocalNotificationDateInterpretation:
+                  UILocalNotificationDateInterpretation.absoluteTime,
+              payload: note.id.toString(),
+            );
+          } catch (_) {
+            // exactAllowWhileIdle 제한 등 → 해당 슬롯 건너뜀
+          }
+          idx++;
         }
       }
     } finally {
@@ -187,4 +195,62 @@ class NotificationService {
   }
 
   Future<void> cancelNudge() async => _plugin.cancel(_nudgeNotifId);
+
+  // ─── 진행 중 타이머 상단 알림 배너 ─────────────────────────────────────────────
+  // 타이머 켜진 동안 상단/잠금화면에 표시해서 종료 깜빡 잊는 걸 방지.
+  // [active]가 비면 알림을 제거. 한 개면 단일 표시, 여러 개면 요약 표시.
+
+  Future<void> showActiveTimers(List<ActiveTimer> active) async {
+    if (active.isEmpty) {
+      await _plugin.cancel(_timerNotifId);
+      return;
+    }
+    final title = active.length == 1
+        ? '진행 중: ${active.first.todoText}'
+        : '진행 중인 일 ${active.length}개';
+    final body = active.length == 1
+        ? '${active.first.startTime} 시작'
+        : active.map((t) => '• ${t.todoText} (${t.startTime}~)').join('\n');
+
+    try {
+      await _plugin.show(
+        _timerNotifId,
+        title,
+        body,
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            _timerChannelId,
+            _timerChannelName,
+            channelDescription: '진행 중인 할 일 표시 (계속 떠 있음)',
+            importance: Importance.low, // 소리/진동 없이 조용히 상단 표시
+            priority: Priority.low,
+            ongoing: true,
+            autoCancel: false,
+            onlyAlertOnce: true,
+            visibility: NotificationVisibility.public,
+            playSound: false,
+            enableVibration: false,
+            showWhen: true,
+            styleInformation: active.length > 1
+                ? BigTextStyleInformation(body)
+                : null,
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: false,
+            presentBadge: false,
+            presentSound: false,
+          ),
+        ),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> cancelActiveTimers() => _plugin.cancel(_timerNotifId);
+}
+
+/// 진행 중 타이머 알림에 표시할 한 줄 항목.
+class ActiveTimer {
+  final String todoText;
+  final String startTime; // 'HH:MM'
+  const ActiveTimer({required this.todoText, required this.startTime});
 }

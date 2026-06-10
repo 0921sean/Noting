@@ -141,6 +141,7 @@ class _TodoScreenState extends State<TodoScreen> {
       _loading = false;
     });
     _refreshNudge();
+    _refreshTimerBanner();
   }
 
   Future<void> _loadTimeRecordsForDate(String dateKey) async {
@@ -236,6 +237,37 @@ class _TodoScreenState extends State<TodoScreen> {
     });
   }
 
+  // 편집 중인 항목이 있으면 변경사항을 자동 저장하고 편집 모드 종료.
+  // 외부 영역 탭(키보드 내리기 등) 시 호출 — 텍스트가 사라지지 않게 한다.
+  void _commitEditingIfAny() {
+    final eid = _editingId;
+    if (eid == null) return;
+    final parts = eid.split(':');
+    if (parts.length < 2) {
+      setState(() => _editingId = null);
+      return;
+    }
+    final date = parts[0];
+    final id = int.tryParse(parts[1]);
+    final list = _byDate[date];
+    if (id == null || list == null) {
+      setState(() => _editingId = null);
+      return;
+    }
+    Todo? todo;
+    for (final t in list) {
+      if (t.id == id) {
+        todo = t;
+        break;
+      }
+    }
+    if (todo == null) {
+      setState(() => _editingId = null);
+      return;
+    }
+    _saveEdit(todo);
+  }
+
   Future<void> _deleteTodo(Todo todo) async {
     await SupabaseService.deleteTodo(todo.id!);
     if (!mounted) return;
@@ -246,6 +278,7 @@ class _TodoScreenState extends State<TodoScreen> {
       _byDate[todo.date]?.removeWhere((t) => t.id == todo.id);
     });
     _refreshNudge();
+    _refreshTimerBanner();
   }
 
   // ─── 타이머 (TimeRecord 기반) ─────────────────────────────────────────────
@@ -272,6 +305,7 @@ class _TodoScreenState extends State<TodoScreen> {
           .putIfAbsent(todo.id!, () => [])
           .add(record);
     });
+    _refreshTimerBanner();
   }
 
   Future<void> _stopTimer(Todo todo) async {
@@ -296,6 +330,37 @@ class _TodoScreenState extends State<TodoScreen> {
         if (idx != -1) list[idx] = list[idx].copyWith(endTime: e);
       }
     });
+    _refreshTimerBanner();
+  }
+
+  // 현재 실행 중인 모든 타이머를 모아 상단 알림 배너를 갱신.
+  // 종료 깜빡 잊는 걸 방지 — 진행 중이면 폰 상단에 계속 표시됨.
+  void _refreshTimerBanner() {
+    if (kIsWeb) return;
+    final active = <ActiveTimer>[];
+    for (final entry in _activeRecordIds.entries) {
+      final todoId = entry.key;
+      final recordId = entry.value;
+      // todo 텍스트 찾기 (모든 날짜 스캔, 보통 한 자리)
+      String? todoText;
+      for (final list in _byDate.values) {
+        for (final t in list) {
+          if (t.id == todoId) {
+            todoText = t.text;
+            break;
+          }
+        }
+        if (todoText != null) break;
+      }
+      if (todoText == null) continue;
+      // 시작 시각 찾기
+      final rec = _timeRecords[todoId]
+          ?.firstWhere((r) => r.id == recordId, orElse: () => TimeRecord(todoId: todoId, startTime: ''));
+      final start = rec?.startTime ?? '';
+      if (start.isEmpty) continue;
+      active.add(ActiveTimer(todoText: todoText, startTime: start));
+    }
+    NotificationService.instance.showActiveTimers(active);
   }
 
   // 타이머 실행 중 경과 시간 레이블
@@ -649,7 +714,8 @@ class _TodoScreenState extends State<TodoScreen> {
     return GestureDetector(
       onTap: () {
         FocusScope.of(context).unfocus();
-        if (_editingId != null) setState(() => _editingId = null);
+        // 외부 탭 시 편집 내용 날리지 않고 자동 저장 (오작동 방지)
+        _commitEditingIfAny();
       },
       behavior: HitTestBehavior.translucent,
       child: Column(

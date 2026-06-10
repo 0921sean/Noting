@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
@@ -42,6 +43,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _loading = true;
   bool _classifying = false;
   bool _dragging = false; // 카테고리 드래그 중 (삭제 영역 표시용)
+  Note? _recallNote; // 메모 탭 진입 시 랜덤으로 띄우는 옛 메모
 
   // 첫 진입 코치마크 (showcaseview)
   final _addKey = GlobalKey();
@@ -119,9 +121,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _notes = results[0] as List<Note>;
       _categories = results[1] as List<String>;
       _loading = false;
+      _shuffleRecall();
     });
     _checkSwipeHint();
     _scheduleIfNeeded();
+  }
+
+  // 메모 탭에서 보여줄 랜덤 옛 메모를 뽑는다.
+  // 카테고리로 분류되어 카드에 묻혀버린 메모들을 다시 마주치게 하는 역할.
+  void _shuffleRecall() {
+    if (_notes.isEmpty) {
+      _recallNote = null;
+      return;
+    }
+    final rng = Random();
+    Note pick = _notes[rng.nextInt(_notes.length)];
+    // 가능하면 직전에 뜬 거랑 다른 걸로
+    if (_notes.length > 1 && _recallNote != null) {
+      for (int i = 0; i < 4 && pick.id == _recallNote!.id; i++) {
+        pick = _notes[rng.nextInt(_notes.length)];
+      }
+    }
+    _recallNote = pick;
   }
 
   Future<void> _checkSwipeHint() async {
@@ -533,8 +554,75 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ? _buildDeleteZone()
               : const SizedBox(width: double.infinity),
         ),
+        if (_recallNote != null && !_dragging) _buildRecallCard(),
         Expanded(child: grid),
       ],
+    );
+  }
+
+  // ─── 랜덤 회상 카드 (메모 탭 상단) ─────────────────────────────────────────────
+  Widget _buildRecallCard() {
+    final cs = Theme.of(context).colorScheme;
+    final note = _recallNote!;
+    final preview = note.content.length > 80
+        ? '${note.content.substring(0, 80).replaceAll('\n', ' ')}…'
+        : note.content.replaceAll('\n', ' ');
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+      child: GestureDetector(
+        onTap: () => _openNoteById(note.id!),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 8, 12),
+          decoration: BoxDecoration(
+            color: cs.primary.withOpacity(0.07),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: cs.primary.withOpacity(0.18), width: 1),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text('💭',
+                  style: TextStyle(
+                      fontSize: 18, color: cs.onSurface.withOpacity(0.75))),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('기억나?',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: cs.primary.withOpacity(0.75),
+                          letterSpacing: 0.2,
+                        )),
+                    const SizedBox(height: 3),
+                    Text(
+                      preview,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.4,
+                        color: cs.onSurface.withOpacity(0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.refresh_rounded,
+                    size: 18, color: cs.onSurface.withOpacity(0.45)),
+                tooltip: '다른 메모 보기',
+                onPressed: () => setState(_shuffleRecall),
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
