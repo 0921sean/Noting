@@ -58,10 +58,30 @@ class _AuthScreenState extends State<AuthScreen> {
         await Supabase.instance.client.auth
             .signInWithPassword(email: email, password: pw);
       } else {
-        await Supabase.instance.client.auth
-            .signUp(email: email, password: pw);
+        await Supabase.instance.client.auth.signUp(
+          email: email,
+          password: pw,
+          emailRedirectTo: _redirectUrl,
+        );
       }
       if (!mounted) return;
+      // 이메일 인증이 켜져 있으면 signUp 직후엔 세션이 없다.
+      // 그땐 홈으로 보내지 말고 "확인 메일을 보냈어요" 안내 후 로그인 화면 유지.
+      final session = Supabase.instance.client.auth.currentSession;
+      if (session == null) {
+        setState(() => _isLogin = true); // 로그인 화면으로 전환
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content:
+                Text('$email 로 확인 메일을 보냈어요.\n메일을 열어 링크를 눌러주세요.'),
+            behavior: SnackBarBehavior.floating,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+        return;
+      }
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const HomeScreen()),
       );
@@ -107,7 +127,7 @@ class _AuthScreenState extends State<AuthScreen> {
     if (msg.contains('Invalid login')) return '이메일 또는 비밀번호가 틀렸어요';
     if (msg.contains('already registered')) return '이미 가입된 이메일이에요. 로그인해봐요';
     if (msg.contains('not confirmed')) return '이메일 인증이 필요해요. 받은편지함을 확인해줘요';
-    if (msg.contains('Password should be')) return '비밀번호는 6자 이상이어야 해요';
+    if (msg.contains('Password should be')) return '비밀번호는 8자 이상이어야 해요';
     if (msg.contains('valid email')) return '올바른 이메일 형식이 아니에요';
     return msg;
   }

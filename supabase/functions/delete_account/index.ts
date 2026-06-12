@@ -6,6 +6,12 @@
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
+// 실수로 삭제되면 안 되는 계정 목록 (소문자 비교).
+// 본인 운영 계정 보호용.
+const PROTECTED_EMAILS = new Set<string>([
+  "0921sean@gmail.com",
+]);
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
@@ -23,6 +29,14 @@ Deno.serve(async (req) => {
       status: 401,
       headers: { "content-type": "application/json" },
     });
+  }
+
+  // 보호 계정 차단
+  if (user.email && PROTECTED_EMAILS.has(user.email.toLowerCase())) {
+    return new Response(
+      JSON.stringify({ error: "이 계정은 삭제할 수 없습니다." }),
+      { status: 403, headers: { "content-type": "application/json" } },
+    );
   }
 
   const admin = createClient(

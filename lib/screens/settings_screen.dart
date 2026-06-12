@@ -105,8 +105,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ─── 계정 삭제 ────────────────────────────────────────────────────────────
   // App Store/Play Store 정책상 앱 내 계정 삭제 기능 필수.
   // 확인 다이얼로그 두 단계(텍스트 일치) 후 Edge Function 호출 → 로그아웃.
+  static const _protectedEmails = {'0921sean@gmail.com'};
+
   Future<void> _deleteAccount() async {
     final cs = Theme.of(context).colorScheme;
+    // 본인 운영 계정 보호 (서버에도 동일 체크 있음)
+    final email =
+        Supabase.instance.client.auth.currentUser?.email?.toLowerCase();
+    if (email != null && _protectedEmails.contains(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('이 계정은 삭제할 수 없어요'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 3),
+      ));
+      return;
+    }
     final controller = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
