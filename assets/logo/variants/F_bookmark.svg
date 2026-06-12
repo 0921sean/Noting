@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- F) 책갈피 — 미드나잇 네이비 바탕 + 크림 책갈피 리본. 직관적 "나중에 다시 보자". -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="#1F2640"/>
+  <!-- 책갈피 본체: 위는 직선, 아래는 V컷 -->
+  <path d="M 360 140
+           L 664 140
+           L 664 880
+           L 512 760
+           L 360 880 Z"
+        fill="#F4EFE5"/>
+  <!-- 책갈피 위 가로선 두 개 (메모 라인) -->
+  <line x1="430" y1="380" x2="594" y2="380" stroke="#1F2640" stroke-width="14" stroke-linecap="round"/>
+  <line x1="430" y1="450" x2="540" y2="450" stroke="#1F2640" stroke-width="14" stroke-linecap="round"/>
+</svg>

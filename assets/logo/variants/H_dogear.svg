@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- H) 접힌 모서리 — 러스트 오렌지 바탕 + 크림 페이지의 우상 접힘. 책장에 표시 남기듯. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="#B85C38"/>
+  <!-- 페이지 (오른쪽 위 모서리 접힘) -->
+  <path d="M 220 200
+           L 700 200
+           L 824 324
+           L 824 824
+           L 220 824 Z"
+        fill="#F4EFE5"/>
+  <!-- 접힌 삼각형 (어둡게) -->
+  <path d="M 700 200 L 824 324 L 700 324 Z" fill="#D8C9B0"/>
+  <path d="M 700 200 L 700 324 L 824 324 Z" fill="none" stroke="#B85C38" stroke-width="3" opacity="0.4"/>
+  <!-- 페이지 위 줄 (메모) -->
+  <line x1="292" y1="490" x2="752" y2="490" stroke="#D8C9B0" stroke-width="14" stroke-linecap="round"/>
+  <line x1="292" y1="580" x2="752" y2="580" stroke="#D8C9B0" stroke-width="14" stroke-linecap="round"/>
+  <line x1="292" y1="670" x2="580" y2="670" stroke="#D8C9B0" stroke-width="14" stroke-linecap="round"/>
+</svg>

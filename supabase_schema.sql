@@ -60,3 +60,16 @@ create index if not exists noting_todos_user_date_idx
   on public.noting_todos (user_id, date);
 create index if not exists noting_time_records_todo_idx
   on public.noting_time_records (todo_id);
+
+-- 5. AI 호출 rate limit 추적
+-- classify Edge Function이 호출될 때마다 1행 기록.
+-- 시간당/일별 카운트로 사용자별 횟수 제한.
+create table if not exists public.noting_ai_calls (
+  id         bigint generated always as identity primary key,
+  user_id    uuid references auth.users on delete cascade not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists noting_ai_calls_user_time_idx
+  on public.noting_ai_calls (user_id, created_at desc);
+alter table public.noting_ai_calls enable row level security;
+-- 정책 없음 — 함수가 service_role로 직접 쓰고, 사용자는 읽을 일 없음.

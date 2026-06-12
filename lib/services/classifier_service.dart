@@ -10,6 +10,14 @@ typedef AutoCategoryResult = ({
   Map<int, String> assignments,
 });
 
+/// Rate limit이나 인증 같은 사용자에게 보여줄 만한 오류.
+class ClassifierException implements Exception {
+  final String message;
+  ClassifierException(this.message);
+  @override
+  String toString() => message;
+}
+
 class ClassifierService {
   // Anthropic을 직접 호출하지 않고 Supabase Edge Function(classify)을 거친다.
   // → API 키가 앱에 들어가지 않고 서버 시크릿으로만 보관됨.
@@ -139,6 +147,11 @@ class ClassifierService {
           )
           .timeout(const Duration(seconds: 60));
 
+      if (resp.statusCode == 429) {
+        // rate limit — 함수가 보낸 메시지를 그대로 사용자에게 노출
+        final msg = _extractError(resp.bodyBytes) ?? '잠시 후 다시 시도해주세요.';
+        throw ClassifierException(msg);
+      }
       if (resp.statusCode != 200) return null;
 
       final body = utf8.decode(resp.bodyBytes);
@@ -165,9 +178,21 @@ class ClassifierService {
       }
 
       return (categories: categories, assignments: assignments);
+    } on ClassifierException {
+      rethrow;
     } catch (_) {
       return null;
     }
+  }
+
+  // Edge Function의 {"error":"..."} 응답에서 메시지만 뽑는다.
+  static String? _extractError(List<int> bytes) {
+    try {
+      final body = utf8.decode(bytes);
+      final m = jsonDecode(body);
+      if (m is Map && m['error'] is String) return m['error'] as String;
+    } catch (_) {}
+    return null;
   }
 
   /// 메모를 AI가 실시간으로 주제별 그루핑 (저장 안 함, 표시용).

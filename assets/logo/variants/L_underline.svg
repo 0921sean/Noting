@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- L) 점 + 밑줄 — 매우 미니멀 추상. "한 생각을 기록하는 행위"의 압축. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="#F4EFE5"/>
+  <!-- 점 (생각) -->
+  <circle cx="512" cy="430" r="36" fill="#1A1310"/>
+  <!-- 밑줄 (기록) — 점 아래 굵은 가로선 -->
+  <rect x="280" y="600" width="464" height="32" rx="16" fill="#1A1310"/>
+  <!-- 끝부분 액센트 -->
+  <circle cx="744" cy="616" r="20" fill="#C56A45"/>
+</svg>

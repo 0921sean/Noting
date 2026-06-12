@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- C) 모던 산세리프 — 두꺼운 기하학적 N, 깔끔/현대적 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="#7C5C3E"/>
+
+  <!-- 두꺼운 N을 패스로 직접 그림 (산세리프, 굵은 스트로크) -->
+  <!-- 좌측 수직 -->
+  <rect x="282" y="280" width="120" height="464" fill="#FAF7F2"/>
+  <!-- 우측 수직 -->
+  <rect x="622" y="280" width="120" height="464" fill="#FAF7F2"/>
+  <!-- 대각선 (좌상→우하) -->
+  <polygon points="282,280 402,280 742,744 622,744" fill="#FAF7F2"/>
+
+  <!-- 작은 스파클 점 -->
+  <g transform="translate(820, 260)" fill="#F9AE7D">
+    <path d="M 0 -55 C 4 -22 22 -4 55 0 C 22 4 4 22 0 55 C -4 22 -22 4 -55 0 C -22 -4 -4 -22 0 -55 Z"/>
+  </g>
+</svg>

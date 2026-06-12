@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- D) 종이 한 장 — 접힌 모서리 메모지 + 줄 + ✦, 노트 앱의 직관적 메타포 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- 배경 (약간 그라데이션 있는 따뜻한 베이지) -->
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="#7C5C3E"/>
+
+  <!-- 종이 본체 (오른쪽 위 모서리 접힘) -->
+  <!-- 종이는 (220, 200) ~ (804, 824), 접힌 모서리는 우상 (140x140) -->
+  <path d="M 220 200
+           L 664 200
+           L 804 340
+           L 804 824
+           L 220 824 Z"
+        fill="#FAF7F2"/>
+  <!-- 접힌 부분 (어두운 삼각형) -->
+  <path d="M 664 200 L 804 340 L 664 340 Z" fill="#E8DDD0"/>
+
+  <!-- 줄 (메모지 라인 3개) -->
+  <line x1="288" y1="510" x2="736" y2="510" stroke="#D4C4B0" stroke-width="10" stroke-linecap="round"/>
+  <line x1="288" y1="610" x2="736" y2="610" stroke="#D4C4B0" stroke-width="10" stroke-linecap="round"/>
+  <line x1="288" y1="710" x2="560" y2="710" stroke="#D4C4B0" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- 종이 위 작은 ✦ 액센트 -->
+  <g transform="translate(330, 400)" fill="#D4843A">
+    <path d="M 0 -60 C 4 -24 24 -4 60 0 C 24 4 4 24 0 60 C -4 24 -24 4 -60 0 C -24 -4 -4 -24 0 -60 Z"/>
+  </g>
+</svg>

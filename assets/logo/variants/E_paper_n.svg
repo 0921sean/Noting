@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- E) 종이 + 잉크 — 크림 바탕에 잉크블랙 소문자 n. 가장 미니멀·고요. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="#F4EFE5"/>
+  <text x="512" y="700"
+        text-anchor="middle"
+        font-family="'Times New Roman', 'Noto Serif KR', serif"
+        font-weight="500"
+        font-size="600"
+        fill="#1A1310"
+        letter-spacing="-10">n</text>
+  <!-- 생각의 마침표 — 단 하나의 점 -->
+  <circle cx="760" cy="380" r="28" fill="#D4843A"/>
+</svg>

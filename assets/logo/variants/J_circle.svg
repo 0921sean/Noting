@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- J) 원형 마크 — 우표/도장 같은 원형 안에 소문자 n. 따뜻한 클레이 톤. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="#F4EFE5"/>
+  <!-- 진한 원 (도장) -->
+  <circle cx="512" cy="512" r="320" fill="#C56A45"/>
+  <!-- 안쪽 미세한 링 -->
+  <circle cx="512" cy="512" r="296" fill="none" stroke="#F4EFE5" stroke-width="4" opacity="0.55"/>
+  <text x="512" y="640"
+        text-anchor="middle"
+        font-family="'Times New Roman', 'Noto Serif KR', serif"
+        font-weight="500"
+        font-size="380"
+        fill="#F4EFE5"
+        letter-spacing="-8">n</text>
+</svg>

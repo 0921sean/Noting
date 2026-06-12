@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- G) 봉투 — 세이지 그린 바탕 + 크림 봉투. "미래의 나에게 보낸 편지" 메타포. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="#5C7359"/>
+  <!-- 봉투 본체 -->
+  <rect x="208" y="312" width="608" height="400" rx="20" fill="#F4EFE5"/>
+  <!-- 봉투 플랩 (윗부분 V 모양) -->
+  <path d="M 208 332
+           L 512 552
+           L 816 332
+           L 816 312
+           Q 816 312 800 312
+           L 224 312
+           Q 208 312 208 332 Z"
+        fill="#E8E0D0"/>
+  <!-- 플랩 안쪽 그림자 -->
+  <path d="M 228 326
+           L 512 530
+           L 796 326"
+        fill="none" stroke="#5C7359" stroke-width="6" stroke-linejoin="round" opacity="0.35"/>
+  <!-- 우표 점 (작은 액센트) -->
+  <circle cx="750" cy="380" r="22" fill="#D4843A" opacity="0.85"/>
+</svg>

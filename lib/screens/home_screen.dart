@@ -193,6 +193,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       await _loadAll();
       if (!mounted) return;
       _showSnack('미분류 메모 ${uncategorized.length}개를 분류했어요');
+    } on ClassifierException catch (e) {
+      if (!mounted) return;
+      _showSnack(e.message);
     } catch (_) {
       if (!mounted) return;
       _showSnack('자동분류 실패. 다시 시도해봐요.');

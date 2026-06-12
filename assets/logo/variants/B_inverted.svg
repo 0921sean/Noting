@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- B) 반전 / 라이트 — 크림 바탕 + 브라운 N, 더 차분하고 따뜻 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="#FAF7F2"/>
+  <!-- 가장자리 미세한 음영 -->
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220"
+        fill="none" stroke="#E8DDD0" stroke-width="4"/>
+
+  <text x="512" y="720"
+        text-anchor="middle"
+        font-family="'Times New Roman', 'Noto Serif KR', serif"
+        font-weight="700"
+        font-size="640"
+        fill="#7C5C3E"
+        letter-spacing="-20">N</text>
+
+  <g transform="translate(760, 280)" fill="#D4843A">
+    <path d="M 0 -90 C 6 -35 35 -6 90 0 C 35 6 6 35 0 90 C -6 35 -35 6 -90 0 C -35 -6 -6 -35 0 -90 Z"/>
+  </g>
+</svg>

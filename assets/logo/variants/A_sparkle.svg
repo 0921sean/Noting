@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A) 스파클 중심 — 문자 없이 ✦만, 가장 미니멀하고 강렬 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <rect x="0" y="0" width="1024" height="1024" rx="220" ry="220" fill="#7C5C3E"/>
+  <g transform="translate(512, 512)" fill="#FAF7F2">
+    <path d="M 0 -360 C 24 -140 140 -24 360 0 C 140 24 24 140 0 360 C -24 140 -140 24 -360 0 C -140 -24 -24 -140 0 -360 Z"/>
+  </g>
+  <!-- 작은 보조 스파클 -->
+  <g transform="translate(810, 200)" fill="#FAF7F2" opacity="0.55">
+    <path d="M 0 -50 C 3 -19 19 -3 50 0 C 19 3 3 19 0 50 C -3 19 -19 3 -50 0 C -19 -3 -3 -19 0 -50 Z"/>
+  </g>
+  <g transform="translate(220, 820)" fill="#FAF7F2" opacity="0.35">
+    <path d="M 0 -34 C 2 -13 13 -2 34 0 C 13 2 2 13 0 34 C -2 13 -13 2 -34 0 C -13 -2 -2 -13 0 -34 Z"/>
+  </g>
+</svg>
