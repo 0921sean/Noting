@@ -61,7 +61,22 @@ create index if not exists noting_todos_user_date_idx
 create index if not exists noting_time_records_todo_idx
   on public.noting_time_records (todo_id);
 
--- 5. AI 호출 rate limit 추적
+-- 5. 계정 삭제 시 사용자 데이터 자동 정리 (CASCADE)
+-- 기존 FK는 CASCADE 없이 만들어져서 auth.users 삭제가 막힘. 재정의.
+alter table public.noting_notes
+  drop constraint if exists noting_notes_user_id_fkey,
+  add  constraint noting_notes_user_id_fkey
+    foreign key (user_id) references auth.users (id) on delete cascade;
+alter table public.noting_todos
+  drop constraint if exists noting_todos_user_id_fkey,
+  add  constraint noting_todos_user_id_fkey
+    foreign key (user_id) references auth.users (id) on delete cascade;
+alter table public.noting_time_records
+  drop constraint if exists noting_time_records_user_id_fkey,
+  add  constraint noting_time_records_user_id_fkey
+    foreign key (user_id) references auth.users (id) on delete cascade;
+
+-- 6. AI 호출 rate limit 추적
 -- classify Edge Function이 호출될 때마다 1행 기록.
 -- 시간당/일별 카운트로 사용자별 횟수 제한.
 create table if not exists public.noting_ai_calls (

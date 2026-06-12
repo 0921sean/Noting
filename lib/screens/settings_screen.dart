@@ -102,6 +102,89 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // ─── 계정 삭제 ────────────────────────────────────────────────────────────
+  // App Store/Play Store 정책상 앱 내 계정 삭제 기능 필수.
+  // 확인 다이얼로그 두 단계(텍스트 일치) 후 Edge Function 호출 → 로그아웃.
+  Future<void> _deleteAccount() async {
+    final cs = Theme.of(context).colorScheme;
+    final controller = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: cs.surface,
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('계정 삭제',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                '계정과 모든 메모·투두·시간 기록이 영구 삭제돼요.\n'
+                '되돌릴 수 없어요.\n\n'
+                '진행하려면 아래에 "삭제"라고 입력해주세요.',
+                style: TextStyle(fontSize: 13, height: 1.55),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: '삭제',
+                  isDense: true,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+                style: const TextStyle(fontSize: 14),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text('취소',
+                  style: TextStyle(color: cs.onSurface.withOpacity(0.5))),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.of(ctx).pop(controller.text.trim() == '삭제'),
+              child: Text('영구 삭제', style: TextStyle(color: cs.error)),
+            ),
+          ],
+        );
+      },
+    );
+    controller.dispose();
+    if (confirmed != true || !mounted) return;
+
+    try {
+      final resp =
+          await Supabase.instance.client.functions.invoke('delete_account');
+      // 200 OK가 아니면 예외 처리
+      if (resp.status != 200) {
+        throw Exception(resp.data?['error'] ?? '계정 삭제 실패');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('계정 삭제 실패: $e'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+      ));
+      return;
+    }
+
+    // 함수 성공 → 세션은 이미 무효. 명시 로그아웃 후 로그인 화면으로.
+    await Supabase.instance.client.auth.signOut();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const AuthScreen()),
+      (_) => false,
+    );
+  }
+
   String _z(int v) => v.toString().padLeft(2, '0');
 
   @override
@@ -170,6 +253,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.logout_outlined,
                         title: '로그아웃',
                         onTap: _signOut,
+                        titleColor: Theme.of(context).colorScheme.error,
+                        showChevron: false,
+                      ),
+                      Divider(
+                          height: 1,
+                          thickness: 0.5,
+                          color: Theme.of(context).dividerColor),
+                      _WarmTile(
+                        icon: Icons.delete_forever_outlined,
+                        title: '계정 삭제',
+                        subtitle: '계정과 모든 데이터를 영구 삭제',
+                        onTap: _deleteAccount,
                         titleColor: Theme.of(context).colorScheme.error,
                         showChevron: false,
                       ),
