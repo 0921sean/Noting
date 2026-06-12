@@ -7,6 +7,7 @@ import 'package:timezone/timezone.dart' as tz_local;
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'config.dart';
+import 'services/analytics_service.dart';
 import 'services/notification_service.dart';
 import 'screens/auth_screen.dart';
 import 'screens/home_screen.dart';
@@ -40,6 +41,12 @@ void main() async {
     await NotificationService.instance.scheduleMidnightPlannerReminder();
   }
 
+  // PostHog (HTTP 직통) — API 키가 비어있으면 자동 비활성
+  await AnalyticsService.initialize();
+  // 이미 로그인 상태면 user UUID로 identify
+  final loggedInUid = Supabase.instance.client.auth.currentUser?.id;
+  if (loggedInUid != null) await AnalyticsService.identify(loggedInUid);
+
   final prefs = await SharedPreferences.getInstance();
   final permissionAsked = prefs.getBool('permission_asked') ?? false;
   final onboardingDone = prefs.getBool('onboarding_done') ?? false;
@@ -50,6 +57,12 @@ void main() async {
   final launchedByPlanner = kIsWeb
       ? false
       : await NotificationService.instance.wasLaunchedByPlannerReminder();
+
+  // 콜드 스타트 app_open (source 구분 — 출시 후 D7 코호트 분석용)
+  if (!kIsWeb) {
+    final source = await NotificationService.instance.getLaunchSource();
+    AnalyticsService.appOpen(source);
+  }
 
   final isLoggedIn =
       Supabase.instance.client.auth.currentSession != null;

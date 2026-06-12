@@ -1,5 +1,7 @@
+import 'dart:async' show unawaited;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/analytics_service.dart';
 import 'home_screen.dart';
 import 'reset_password_screen.dart';
 
@@ -63,6 +65,8 @@ class _AuthScreenState extends State<AuthScreen> {
           password: pw,
           emailRedirectTo: _redirectUrl,
         );
+        // 가입 이벤트는 메일 확인 전이라도 발송 (가입 의도 자체를 추적)
+        unawaited(AnalyticsService.signUp());
       }
       if (!mounted) return;
       // 이메일 인증이 켜져 있으면 signUp 직후엔 세션이 없다.
@@ -82,6 +86,8 @@ class _AuthScreenState extends State<AuthScreen> {
         );
         return;
       }
+      // 로그인 / 가입+자동인증 성공 → PostHog identify
+      unawaited(AnalyticsService.identify(session.user.id));
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const HomeScreen()),
       );
@@ -142,19 +148,38 @@ class _AuthScreenState extends State<AuthScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 60),
-              Text('Noting',
-                  style: TextStyle(
-                    fontSize: 32, fontWeight: FontWeight.w700,
-                    color: cs.onSurface, letterSpacing: -0.5,
-                  )),
+              const SizedBox(height: 36),
+              // 작은 브랜드
+              Center(
+                child: Text('Noting',
+                    style: TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600,
+                      color: cs.onSurface.withOpacity(0.4),
+                      letterSpacing: 0.5,
+                    )),
+              ),
+              const SizedBox(height: 24),
+              // 상단 세그먼티드 탭 (로그인 / 회원가입)
+              _buildModeTabs(cs),
+              const SizedBox(height: 28),
+              // 큰 모드 헤딩 + 서브카피
+              Text(
+                _isLogin ? '돌아왔어요?' : '새 계정 만들기',
+                style: TextStyle(
+                  fontSize: 24, fontWeight: FontWeight.w700,
+                  color: cs.onSurface, letterSpacing: -0.5,
+                ),
+              ),
               const SizedBox(height: 6),
               Text(
-                _isLogin ? '다시 돌아왔어요' : '처음이에요? 계정을 만들어요',
+                _isLogin
+                    ? '이메일과 비밀번호로 로그인해요.'
+                    : '확인 메일을 보내드릴게요. 메일함을 열어주세요.',
                 style: TextStyle(
-                    fontSize: 14, color: cs.onSurface.withOpacity(0.45)),
+                    fontSize: 13, color: cs.onSurface.withOpacity(0.55),
+                    height: 1.5),
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 28),
 
               // 이메일
               TextField(
@@ -179,7 +204,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 onSubmitted: (_) => _submit(),
                 decoration: InputDecoration(
                   labelText: '비밀번호',
-                  helperText: _isLogin ? null : '6자 이상',
+                  helperText: _isLogin ? null : '8자 이상',
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12)),
                   contentPadding: const EdgeInsets.symmetric(
@@ -213,17 +238,26 @@ class _AuthScreenState extends State<AuthScreen> {
               ],
               const SizedBox(height: 20),
 
-              // 로그인/회원가입 버튼
+              // 메인 액션 버튼 — 모드별 색/아이콘 차별화
               SizedBox(
                 width: double.infinity,
-                height: 50,
-                child: FilledButton(
+                height: 52,
+                child: FilledButton.icon(
                   onPressed: _loading ? null : _submit,
                   style: FilledButton.styleFrom(
+                    backgroundColor:
+                        _isLogin ? cs.primary : cs.onSurface.withOpacity(0.88),
+                    foregroundColor: cs.onPrimary,
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
                   ),
-                  child: _loading
+                  icon: _loading
+                      ? const SizedBox.shrink()
+                      : Icon(
+                          _isLogin ? Icons.login_rounded : Icons.person_add_alt_1_rounded,
+                          size: 18,
+                        ),
+                  label: _loading
                       ? const SizedBox(
                           width: 20, height: 20,
                           child: CircularProgressIndicator(
@@ -233,25 +267,68 @@ class _AuthScreenState extends State<AuthScreen> {
                               fontSize: 15, fontWeight: FontWeight.w600)),
                 ),
               ),
-              const SizedBox(height: 12),
-
-              // 토글
-              Center(
-                child: TextButton(
-                  onPressed: () => setState(() {
-                    _isLogin = !_isLogin;
-                    _error = null;
-                  }),
-                  child: Text(
-                    _isLogin ? '처음이에요 → 회원가입' : '이미 계정이 있어요 → 로그인',
-                    style: TextStyle(fontSize: 13, color: cs.primary),
-                  ),
-                ),
-              ),
+              const SizedBox(height: 28),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  // ─── 상단 세그먼티드 탭 ────────────────────────────────────────────────────
+  Widget _buildModeTabs(ColorScheme cs) {
+    Widget tab(String label, bool isLogin) {
+      final selected = _isLogin == isLogin;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () {
+            if (_loading) return;
+            setState(() {
+              _isLogin = isLogin;
+              _error = null;
+            });
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            margin: const EdgeInsets.all(3),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(
+              color: selected ? cs.surface : Colors.transparent,
+              borderRadius: BorderRadius.circular(11),
+              boxShadow: selected
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.07),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight:
+                      selected ? FontWeight.w700 : FontWeight.w500,
+                  color: selected
+                      ? cs.onSurface
+                      : cs.onSurface.withOpacity(0.45),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.onSurface.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(children: [tab('로그인', true), tab('회원가입', false)]),
     );
   }
 }

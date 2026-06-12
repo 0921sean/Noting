@@ -33,6 +33,7 @@ class NotificationService {
   static const _nudgeMinutes = 90;
   static const _channelDesc = '예전 메모를 다시 보여줍니다';
   static const _plannerPayload = 'planner';
+  static const _nudgePayload = 'nudge';
 
   // 하루에 알림을 띄울 시각 오프셋 (사용자가 설정한 hour 기준)
   // 예: hour=9 → 9시, 15시, 20시
@@ -100,6 +101,19 @@ class NotificationService {
     final details = await _plugin.getNotificationAppLaunchDetails();
     if (details == null || !details.didNotificationLaunchApp) return false;
     return details.notificationResponse?.payload == _plannerPayload;
+  }
+
+  /// 콜드 스타트의 진입 출처를 분석용으로 분류.
+  /// organic / memo_reminder / todo_nudge / planner_alarm.
+  Future<String> getLaunchSource() async {
+    final details = await _plugin.getNotificationAppLaunchDetails();
+    if (details == null || !details.didNotificationLaunchApp) return 'organic';
+    final payload = details.notificationResponse?.payload;
+    if (payload == null) return 'organic';
+    if (payload == _plannerPayload) return 'planner_alarm';
+    if (payload == _nudgePayload) return 'todo_nudge';
+    if (int.tryParse(payload) != null) return 'memo_reminder';
+    return 'organic';
   }
 
   // 하루 3번(기본 9시/15시/20시) 각각 다른 옛 메모로 알림을 예약한다.
@@ -207,6 +221,7 @@ class NotificationService {
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
             UILocalNotificationDateInterpretation.absoluteTime,
+        payload: _nudgePayload,
       );
     } catch (_) {}
   }

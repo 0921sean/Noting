@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:showcaseview/showcaseview.dart';
 import '../utils/coach_mark.dart';
+import '../services/analytics_service.dart';
 import '../services/supabase_service.dart';
 import '../models/note.dart';
 import '../services/category_service.dart';
@@ -116,7 +117,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _loadAll();
+    if (state == AppLifecycleState.resumed) {
+      _loadAll();
+      // 백그라운드 → 포그라운드 복귀도 app_open으로 기록 (출처 구분 어려워 organic)
+      AnalyticsService.appOpen('resume');
+    }
   }
 
   Future<void> _loadAll() async {
@@ -178,6 +183,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       final result = await ClassifierService.autoGenerateCategories(
         uncategorized,
         existing: _categories,
+      );
+      AnalyticsService.aiClassifyUsed(
+        success: result != null,
+        notesCount: uncategorized.length,
       );
       if (result == null || !mounted) return;
 

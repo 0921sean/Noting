@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import '../models/note.dart';
+import '../services/analytics_service.dart';
 import '../services/supabase_service.dart';
 import 'note_detail_screen.dart';
 
@@ -47,6 +48,7 @@ class _CategoryDetailScreenState extends State<CategoryDetailScreen> {
     setState(() => _submitting = true);
     try {
       var note = await SupabaseService.createNote(text);
+      AnalyticsService.noteCreated();
       // 전체/미분류가 아닌 카테고리에서 추가하면 해당 카테고리 적용
       if (widget.category != null && !_isAll) {
         await SupabaseService.updateNoteCategory(note.id!, widget.category);

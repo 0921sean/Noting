@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:showcaseview/showcaseview.dart';
+import '../services/analytics_service.dart';
 import '../services/supabase_service.dart';
 import '../models/todo.dart';
 import '../models/time_record.dart';
@@ -210,6 +211,7 @@ class _TodoScreenState extends State<TodoScreen> {
     if (text.isEmpty) return;
     _addController.clear();
     final todo = await SupabaseService.createTodo(text, _selKey);
+    AnalyticsService.todoCreated();
     if (!mounted) return;
     setState(() => _byDate.putIfAbsent(_selKey, () => []).add(todo));
     _refreshNudge();

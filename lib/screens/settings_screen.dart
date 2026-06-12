@@ -1,7 +1,9 @@
+import 'dart:async' show unawaited;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/analytics_service.dart';
 import '../services/notification_service.dart';
 import 'auth_screen.dart';
 
@@ -95,6 +97,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (confirmed != true) return;
     await Supabase.instance.client.auth.signOut();
+    await AnalyticsService.reset();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const AuthScreen()),
@@ -173,30 +176,71 @@ class _SettingsScreenState extends State<SettingsScreen> {
     controller.dispose();
     if (confirmed != true || !mounted) return;
 
+    // 비동기 작업 전에 navigator/messenger 캡처 — 위젯 dispose 중 context 참조
+    // 시 발생하는 _dependents.isEmpty 어설션을 회피.
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final messenger = ScaffoldMessenger.of(context);
+    final overlayColors = Theme.of(context).colorScheme;
+
+    // 전체 화면을 덮는 로딩 오버레이 — HomeScreen/SettingsScreen 위에서
+    // 시각적으로 모든 teardown 깜빡임을 가린다.
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: overlayColors.surface,
+      useRootNavigator: true,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: Scaffold(
+          backgroundColor: overlayColors.surface,
+          body: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(color: overlayColors.primary),
+                const SizedBox(height: 16),
+                Text('계정 삭제 중...',
+                    style: TextStyle(
+                        fontSize: 14,
+                        color: overlayColors.onSurface.withOpacity(0.6))),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    String? errorMessage;
     try {
       final resp =
           await Supabase.instance.client.functions.invoke('delete_account');
-      // 200 OK가 아니면 예외 처리
       if (resp.status != 200) {
-        throw Exception(resp.data?['error'] ?? '계정 삭제 실패');
+        errorMessage = '계정 삭제 실패: ${resp.data?['error'] ?? resp.status}';
       }
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('계정 삭제 실패: $e'),
+      errorMessage = '계정 삭제 실패: $e';
+    }
+
+    if (errorMessage != null) {
+      // 실패 — 로딩 오버레이 닫고 스낵바
+      navigator.pop();
+      messenger.showSnackBar(SnackBar(
+        content: Text(errorMessage),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 5),
       ));
       return;
     }
 
-    // 함수 성공 → 세션은 이미 무효. 명시 로그아웃 후 로그인 화면으로.
-    await Supabase.instance.client.auth.signOut();
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
+    // 성공 — 로딩 오버레이가 화면을 덮은 상태에서 한 번에 AuthScreen으로 교체.
+    // pushAndRemoveUntil이 로딩 다이얼로그까지 같이 제거하므로 사용자는
+    // 로딩 → 로그인 화면으로 깔끔히 전환되는 것만 본다.
+    navigator.pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const AuthScreen()),
       (_) => false,
     );
+    unawaited(Supabase.instance.client.auth.signOut());
+    unawaited(AnalyticsService.reset());
   }
 
   String _z(int v) => v.toString().padLeft(2, '0');

@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../models/todo.dart';
 import '../models/time_record.dart';
+import '../services/analytics_service.dart';
 import '../utils/planner_colors.dart';
 
 const _kBg = Color(0xFFF0EFF8);
@@ -66,6 +67,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
       await File(filePath).writeAsBytes(bytes.buffer.asUint8List());
 
       await Share.shareXFiles([XFile(filePath)]);
+      AnalyticsService.plannerShared();
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
