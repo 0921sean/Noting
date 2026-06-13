@@ -83,16 +83,18 @@ class CategoryService {
         }
       } catch (_) {}
     }
+    // 마이그레이션 완료 표시 + 구버전 로컬 데이터 즉시 폐기 (원샷).
+    // 이후로는 어떤 사용자가 로그인해도 절대 다시 옮기지 않는다 — 같은 폰에
+    // 다른 사람이 들어와서 옛 데이터를 가져가는 사고를 막기 위해.
     await prefs.setBool(_migratedKey, true);
+    await prefs.remove(_legacyLocalKey);
   }
 
   /// 로그아웃/계정 삭제 시 호출.
-  /// 마이그레이션 플래그 + 구버전 로컬 카테고리 키까지 같이 지운다.
-  /// → 같은 폰에서 다른 사용자가 가입해도 옛 카테고리가 새 계정에 새지 않음.
+  /// 마이그레이션 플래그는 영구 — 일부러 안 지운다 (다른 사용자가 같은 폰에서
+  /// 가입해도 다시 마이그레이션이 돌지 않게). 호환을 위해 메서드는 유지.
   static Future<void> resetMigrationFlag() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_migratedKey);
-    await prefs.remove(_legacyLocalKey);
+    // intentionally no-op — see comment above
   }
 
   // ─── 카테고리 인덱스 기반 색상 ─────────────────────────────────────────────
