@@ -76,7 +76,27 @@ alter table public.noting_time_records
   add  constraint noting_time_records_user_id_fkey
     foreign key (user_id) references auth.users (id) on delete cascade;
 
--- 6. AI 호출 rate limit 추적
+-- 6. 카테고리 (사용자별 메모 카테고리 목록 + 순서)
+-- 이전에는 SharedPreferences(폰 로컬)에만 있어서 다기기 동기화/유저 격리가
+-- 안 됐음. 이 테이블로 옮기면 사용자별·다기기 일관성 보장.
+create table if not exists public.noting_categories (
+  id         bigint generated always as identity primary key,
+  user_id    uuid references auth.users (id) on delete cascade not null default auth.uid(),
+  name       text not null,
+  position   integer not null default 0,
+  created_at timestamptz not null default now(),
+  unique (user_id, name)
+);
+alter table public.noting_categories enable row level security;
+drop policy if exists "own noting_categories" on public.noting_categories;
+create policy "own noting_categories"
+  on public.noting_categories for all
+  using  (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+create index if not exists noting_categories_user_pos_idx
+  on public.noting_categories (user_id, position);
+
+-- 7. AI 호출 rate limit 추적
 -- classify Edge Function이 호출될 때마다 1행 기록.
 -- 시간당/일별 카운트로 사용자별 횟수 제한.
 create table if not exists public.noting_ai_calls (

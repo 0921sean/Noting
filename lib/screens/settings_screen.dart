@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/analytics_service.dart';
+import '../services/category_service.dart';
 import '../services/notification_service.dart';
 import 'auth_screen.dart';
 
@@ -98,6 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (confirmed != true) return;
     await Supabase.instance.client.auth.signOut();
     await AnalyticsService.reset();
+    await CategoryService.resetMigrationFlag();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const AuthScreen()),
@@ -241,6 +243,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     unawaited(Supabase.instance.client.auth.signOut());
     unawaited(AnalyticsService.reset());
+    unawaited(CategoryService.resetMigrationFlag());
   }
 
   String _z(int v) => v.toString().padLeft(2, '0');
