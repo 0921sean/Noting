@@ -5,6 +5,7 @@ import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:showcaseview/showcaseview.dart';
 import '../utils/coach_mark.dart';
+import '../utils/tour.dart';
 import '../services/analytics_service.dart';
 import '../services/supabase_service.dart';
 import '../models/note.dart';
@@ -76,6 +77,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() => _mode = _AppMode.todos);
     };
+    // 설정 → 사용법에서 투어 재개 요청 리스닝
+    TourTrigger.notifier.addListener(_onTourRequest);
   }
 
   // 코치마크를 본 적 없으면(_coachDone=false) 첫 진입 시 한 번 띄운다.
@@ -112,7 +115,34 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     NotificationService.instance.onNotificationTap = null;
     NotificationService.instance.onPlannerReminderTap = null;
+    TourTrigger.notifier.removeListener(_onTourRequest);
     super.dispose();
+  }
+
+  // 글로벌 투어 요청 처리. 'memo' → 메모 탭에서 코치마크. 'todo' → 투두 모드로
+  // 전환만 (TodoScreen이 자체적으로 자기 투어를 띄움).
+  BuildContext? _showcaseCtx; // ShowCaseWidget의 builder ctx — 외부 트리거용
+
+  void _onTourRequest() {
+    final req = TourTrigger.notifier.value;
+    if (req == null || !mounted) return;
+    if (req.kind == 'memo') {
+      setState(() => _mode = _AppMode.notes);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        final ctx = _showcaseCtx;
+        if (ctx == null) return;
+        final keys = <GlobalKey>[
+          _addKey,
+          _aiKey,
+          if (_categories.isNotEmpty) _catKey,
+        ];
+        ShowCaseWidget.of(ctx).startShowCase(keys);
+      });
+    } else if (req.kind == 'todo') {
+      setState(() => _mode = _AppMode.todos);
+      // TodoScreen이 자기 listener로 투어 시작.
+    }
   }
 
   @override
@@ -341,6 +371,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     return ShowCaseWidget(
       disableBarrierInteraction: true,
       builder: (ctx) {
+        _showcaseCtx = ctx;
         _maybeStartCoach(ctx);
         return _buildScaffold();
       },

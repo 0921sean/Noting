@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/analytics_service.dart';
 import '../services/category_service.dart';
 import '../services/notification_service.dart';
+import '../utils/tour.dart';
 import 'auth_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -248,6 +249,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String _z(int v) => v.toString().padLeft(2, '0');
 
+  // 설정 닫고 홈으로 돌아간 다음 코치마크 투어를 재개.
+  // 닫힘 애니메이션이 끝난 뒤 트리거해야 오버레이가 홈 화면 위에 올라간다.
+  void _startTour(BuildContext ctx, String kind) {
+    Navigator.of(ctx).pop();
+    Future.delayed(const Duration(milliseconds: 350), () {
+      TourTrigger.start(kind);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -375,16 +385,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 28),
                   ],
 
-                  // ── 정보 ──────────────────────────────────────────────────
-                  const _SectionLabel(label: '정보'),
+                  // ── 도움말 ────────────────────────────────────────────────
+                  const _SectionLabel(label: '도움말'),
                   const SizedBox(height: 8),
-                  const _WarmCard(
+                  _WarmCard(
                     children: [
                       _WarmTile(
-                        icon: Icons.auto_awesome_outlined,
-                        title: 'Noting',
-                        subtitle: '생각을 기록하고, 잊을 때쯤 다시 만나자',
-                        showChevron: false,
+                        icon: Icons.sticky_note_2_outlined,
+                        title: '메모 사용법',
+                        subtitle: '실제 화면 위에 기능 위치 표시',
+                        onTap: () => _startTour(context, 'memo'),
+                      ),
+                      Divider(
+                          height: 1,
+                          thickness: 0.5,
+                          color: Theme.of(context).dividerColor),
+                      _WarmTile(
+                        icon: Icons.check_box_outlined,
+                        title: '투두 사용법',
+                        subtitle: '실제 화면 위에 기능 위치 표시',
+                        onTap: () => _startTour(context, 'todo'),
                       ),
                     ],
                   ),

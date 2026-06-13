@@ -10,6 +10,7 @@ import '../models/time_record.dart';
 import '../services/notification_service.dart';
 import '../utils/planner_colors.dart';
 import '../utils/coach_mark.dart';
+import '../utils/tour.dart';
 import 'planner_screen.dart';
 
 class TodoScreen extends StatefulWidget {
@@ -73,6 +74,26 @@ class _TodoScreenState extends State<TodoScreen> {
     _pageController = PageController(initialPage: _kBase);
     _loadCoachFlag();
     _load();
+    TourTrigger.notifier.addListener(_onTourRequest);
+  }
+
+  BuildContext? _lastBuildCtx;
+
+  void _onTourRequest() {
+    final req = TourTrigger.notifier.value;
+    if (req?.kind != 'todo' || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _lastBuildCtx;
+      if (ctx == null) return;
+      final keys = <GlobalKey>[
+        _addKey,
+        _copyKey,
+        _plannerKey,
+        if (_selTodos.isNotEmpty) _timerKey,
+      ];
+      ShowCaseWidget.of(ctx).startShowCase(keys);
+    });
   }
 
   Future<void> _loadCoachFlag() async {
@@ -110,6 +131,7 @@ class _TodoScreenState extends State<TodoScreen> {
     _addFocus.dispose();
     _editController.dispose();
     _editFocus.dispose();
+    TourTrigger.notifier.removeListener(_onTourRequest);
     super.dispose();
   }
 
@@ -729,6 +751,7 @@ class _TodoScreenState extends State<TodoScreen> {
   // ─── 빌드 ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    _lastBuildCtx = context;
     _maybeStartCoach(context);
     return GestureDetector(
       onTap: () {
