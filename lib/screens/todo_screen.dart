@@ -108,6 +108,8 @@ class _TodoScreenState extends State<TodoScreen> {
         if (_selTodos.isNotEmpty) _timerKey,
       ];
       ShowCaseWidget.of(ctx).startShowCase(keys);
+      // 같은 요청이 토글 시 다시 재발되지 않도록 즉시 리셋
+      TourTrigger.notifier.value = null;
     });
   }
 

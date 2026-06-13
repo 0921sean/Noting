@@ -147,9 +147,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           if (_categories.isNotEmpty) _catKey,
         ];
         ShowCaseWidget.of(ctx).startShowCase(keys);
+        // 같은 요청이 다시 처리되지 않도록 즉시 리셋
+        TourTrigger.notifier.value = null;
       });
     }
-    // 'todo'는 TodoScreen이 자기 listener로 투어 시작.
+    // 'todo'는 TodoScreen이 자기 listener로 투어 시작하면서 값을 리셋.
   }
 
   @override
