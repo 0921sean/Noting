@@ -10,9 +10,9 @@ class CategoryService {
   static const _legacyLocalKey = 'user_categories';
   static const _migratedKey = 'categories_migrated_to_cloud';
 
-  // 신규 사용자가 처음 들어왔을 때 보여줄 기본값.
-  // 클라우드가 비어있고 로컬에도 아무것도 없을 때만 적용.
-  static const defaults = ['아이디어', '할 일', '생각'];
+  // (구버전 호환용 상수 — 더 이상 신규 가입자에게 시드하지 않는다.
+  //  새 사용자는 빈 상태로 시작해 직접 만들거나 ✨로 생성.)
+  static const defaults = <String>[];
 
   /// 클라우드에서 카테고리 목록을 순서대로 반환.
   /// 필요 시 로컬 → 클라우드 마이그레이션도 같이 수행.
@@ -69,33 +69,30 @@ class CategoryService {
       return;
     }
 
-    // 로컬에서 가져올 수 있는 카테고리
+    // 로컬에서 가져올 수 있는 카테고리 (구버전에서 쓰던 prefs)
     final raw = prefs.getString(_legacyLocalKey);
-    List<String> local;
-    if (raw == null) {
-      local = List.from(defaults); // 신규 유저 기본값 한 번 심어줌
-    } else {
+    if (raw != null) {
       try {
-        local = (jsonDecode(raw) as List).cast<String>();
-      } catch (_) {
-        local = const [];
-      }
-    }
-    if (local.isNotEmpty) {
-      final rows = <Map<String, Object>>[];
-      for (int i = 0; i < local.length; i++) {
-        rows.add({'name': local[i], 'position': i});
-      }
-      await _db.from('noting_categories').insert(rows);
+        final local = (jsonDecode(raw) as List).cast<String>();
+        if (local.isNotEmpty) {
+          final rows = <Map<String, Object>>[];
+          for (int i = 0; i < local.length; i++) {
+            rows.add({'name': local[i], 'position': i});
+          }
+          await _db.from('noting_categories').insert(rows);
+        }
+      } catch (_) {}
     }
     await prefs.setBool(_migratedKey, true);
   }
 
-  /// 로그아웃/계정 삭제 시 마이그레이션 플래그를 리셋. 다음 로그인 사용자가
-  /// 자기 클라우드 데이터로 시작할 수 있게 한다.
+  /// 로그아웃/계정 삭제 시 호출.
+  /// 마이그레이션 플래그 + 구버전 로컬 카테고리 키까지 같이 지운다.
+  /// → 같은 폰에서 다른 사용자가 가입해도 옛 카테고리가 새 계정에 새지 않음.
   static Future<void> resetMigrationFlag() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_migratedKey);
+    await prefs.remove(_legacyLocalKey);
   }
 
   // ─── 카테고리 인덱스 기반 색상 ─────────────────────────────────────────────
