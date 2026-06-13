@@ -8,7 +8,8 @@ import 'package:flutter/foundation.dart';
 class TourRequest {
   final String kind; // 'memo' | 'todo'
   final int seq;
-  const TourRequest(this.kind, this.seq);
+  final bool fromSettings; // 종료/뒤로가기 시 설정으로 복귀할지
+  const TourRequest(this.kind, this.seq, {this.fromSettings = false});
 }
 
 class TourTrigger {
@@ -16,8 +17,9 @@ class TourTrigger {
   static final ValueNotifier<TourRequest?> notifier =
       ValueNotifier<TourRequest?>(null);
 
-  static void start(String kind) {
+  static void start(String kind, {bool fromSettings = false}) {
     _counter++;
-    notifier.value = TourRequest(kind, _counter);
+    notifier.value =
+        TourRequest(kind, _counter, fromSettings: fromSettings);
   }
 }

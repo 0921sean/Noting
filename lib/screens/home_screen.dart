@@ -55,6 +55,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _coachDone = true; // 기본은 '봤음'으로 두고, prefs 확인 후에만 false
   bool _coachStarted = false;
 
+  // 투어 활성 상태 — 뒤로가기를 가로채서 설정 화면으로 복귀시킬지 결정.
+  bool _tourActive = false;
+  bool _tourFromSettings = false;
+
   late _AppMode _mode;
 
   @override
@@ -126,8 +130,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _onTourRequest() {
     final req = TourTrigger.notifier.value;
     if (req == null || !mounted) return;
+    setState(() {
+      _tourActive = true;
+      _tourFromSettings = req.fromSettings;
+      if (req.kind == 'memo') _mode = _AppMode.notes;
+      if (req.kind == 'todo') _mode = _AppMode.todos;
+    });
     if (req.kind == 'memo') {
-      setState(() => _mode = _AppMode.notes);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         final ctx = _showcaseCtx;
@@ -139,10 +148,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ];
         ShowCaseWidget.of(ctx).startShowCase(keys);
       });
-    } else if (req.kind == 'todo') {
-      setState(() => _mode = _AppMode.todos);
-      // TodoScreen이 자기 listener로 투어 시작.
     }
+    // 'todo'는 TodoScreen이 자기 listener로 투어 시작.
   }
 
   @override
@@ -369,7 +376,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return ShowCaseWidget(
-      disableBarrierInteraction: true,
+      // disableBarrierInteraction은 false 유지 — Showcase별 onBarrierClick에서
+      // 다음 단계로 진행하게 처리.
+      onFinish: _onTourFinished,
+      onDismiss: (_) => _onTourFinished(),
       builder: (ctx) {
         _showcaseCtx = ctx;
         _maybeStartCoach(ctx);
@@ -378,15 +388,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _onTourFinished() {
+    if (!mounted) return;
+    setState(() => _tourActive = false);
+  }
+
   Widget _buildScaffold() {
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildAppBar(),
-            _buildModeToggle(),
-            Expanded(child: _buildContent()),
-          ],
+    return PopScope(
+      canPop: !_tourActive,
+      onPopInvoked: (didPop) {
+        if (didPop) return;
+        // 투어 진행 중 뒤로가기 → 투어 종료 + 설정에서 시작된 경우 설정 복귀
+        final ctx = _showcaseCtx;
+        if (ctx != null) {
+          try {
+            ShowCaseWidget.of(ctx).dismiss();
+          } catch (_) {}
+        }
+        setState(() => _tourActive = false);
+        if (_tourFromSettings) {
+          _tourFromSettings = false;
+          Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const SettingsScreen()));
+        }
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: Column(
+            children: [
+              _buildAppBar(),
+              _buildModeToggle(),
+              Expanded(child: _buildContent()),
+            ],
+          ),
         ),
       ),
     );

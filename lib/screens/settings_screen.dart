@@ -249,12 +249,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String _z(int v) => v.toString().padLeft(2, '0');
 
-  // 설정 닫고 홈으로 돌아간 다음 코치마크 투어를 재개.
-  // 닫힘 애니메이션이 끝난 뒤 트리거해야 오버레이가 홈 화면 위에 올라간다.
+  // 코치마크 투어 재개.
+  // 트리거를 먼저 보내고(settings 뒤편의 HomeScreen이 모드 전환·코치마크
+  // 시작 처리), 그게 끝날 시간을 준 뒤 settings를 닫는다. 그래야 settings가
+  // 사라지는 순간 이미 코치마크가 떠 있는 상태가 된다.
   void _startTour(BuildContext ctx, String kind) {
-    Navigator.of(ctx).pop();
-    Future.delayed(const Duration(milliseconds: 350), () {
-      TourTrigger.start(kind);
+    TourTrigger.start(kind, fromSettings: true);
+    Future.delayed(const Duration(milliseconds: 250), () {
+      if (Navigator.of(ctx).canPop()) Navigator.of(ctx).pop();
     });
   }
 

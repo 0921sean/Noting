@@ -75,13 +75,28 @@ class _TodoScreenState extends State<TodoScreen> {
     _loadCoachFlag();
     _load();
     TourTrigger.notifier.addListener(_onTourRequest);
+    // listener를 늦게 등록한 경우(예: 메모 모드에서 '투두 사용법' 호출 시
+    // 그제서야 마운트됨)도 트리거를 놓치지 않도록 현재 값을 한 번 확인.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && TourTrigger.notifier.value?.kind == 'todo') {
+        _onTourRequest();
+      }
+    });
   }
 
   BuildContext? _lastBuildCtx;
+  bool _pendingTour = false; // _load 완료 후 시작해야 할 투어 대기 플래그
 
   void _onTourRequest() {
     final req = TourTrigger.notifier.value;
     if (req?.kind != 'todo' || !mounted) return;
+    // 데이터가 아직 안 들어왔으면 _selTodos가 비어 ▶ 키가 누락된다.
+    // _load 완료 후 재시도하도록 보류.
+    if (_loading) {
+      _pendingTour = true;
+      return;
+    }
+    _pendingTour = false;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final ctx = _lastBuildCtx;
@@ -169,6 +184,8 @@ class _TodoScreenState extends State<TodoScreen> {
     });
     _refreshNudge();
     _refreshTimerBanner();
+    // 로딩 중에 들어온 투어 요청 처리
+    if (_pendingTour) _onTourRequest();
   }
 
   Future<void> _loadTimeRecordsForDate(String dateKey) async {
