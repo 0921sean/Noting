@@ -45,3 +45,6 @@ app.*.map.json
 .claude/
 lib/config.dart
 assets/fonts/
+
+# FVM Version Cache
+.fvm/
