@@ -12,7 +12,9 @@ APK_BUILD="build/app/outputs/flutter-apk/app-release.apk"
 APK_SRC="build/app/outputs/flutter-apk/${APK_NAME}"
 
 echo "🔨 빌드 시작 — noting v${VERSION}"
-flutter build apk --release
+# 머신마다 Flutter 버전이 달라서 fvm로 고정 — fvm 있으면 그걸 통해 빌드
+FLUTTER=$(command -v fvm >/dev/null 2>&1 && echo "fvm flutter" || echo "flutter")
+$FLUTTER build apk --release
 
 # 빌드된 파일 이름 변경
 cp "${APK_BUILD}" "${APK_SRC}"

@@ -64,7 +64,7 @@ Anthropic 키 보호 목적으로만 Edge Function 거침.
 **모든 user_id FK에 `ON DELETE CASCADE`** — 계정 삭제 시 데이터 자동 정리.
 스키마 정본: [`supabase_schema.sql`](supabase_schema.sql)
 
-## 현재 상태 (2026-06-14 기준)
+## 현재 상태 (2026-06-15 기준)
 
 - ✅ 가입/로그인/이메일 인증/비번 재설정/계정 삭제 다 동작
 - ✅ Gmail SMTP 연결 (발신: `0921sean@gmail.com`)
@@ -73,19 +73,17 @@ Anthropic 키 보호 목적으로만 Edge Function 거침.
 - ✅ 카테고리 클라우드 이전 + 다기기 동기화
 - ✅ 사용법 가이드 (설정 → 도움말, 코치마크 재트리거)
 - ✅ Anthropic 월 한도 $50 + $20 알림 설정됨
+- ✅ Anthropic 키 회전 완료 (옛 유출 키 revoke, 2026-06-15)
 - ⏳ Play Store 등록 진행 중 (정책/약관 작성 중)
 
 ## 출시 전 미완 작업 (우선순위 순)
 
-1. **Anthropic 키 회전** ([rotate-anthropic-key 메모](file:///Users/cheonseungbeom/.claude/projects/-Users-cheonseungbeom-Desktop-CSB-MyApps-Noting/memory/rotate-anthropic-key.md))
-   - 옛 APK에 박혀있던 키가 현재 Edge Function 시크릿과 동일.
-   - 새 키 발급 → Supabase 시크릿 교체 → 옛 키 revoke. 5분 작업.
-2. **개인정보처리방침 + 이용약관** (Play Store 필수)
-3. **APK → AAB 전환** (Play Store는 App Bundle 표준, 설치 크기 ~17MB로 줄어듦)
-4. **커스텀 도메인 + 브랜드 발신자** (현재 `0921sean@gmail.com`에서 발송 — 100명 가까워지면 어색)
-5. **Sentry 같은 크래시 리포트** (5K events/월 무료)
-6. **메모 카테고리 수동 변경 UI 없음** — 현재는 카테고리 안에서 새로 적거나 AI 자동분류만 가능
-7. **iOS 빌드** (signing 세팅 + TestFlight) — 아이콘 asset은 준비됨
+1. **개인정보처리방침 + 이용약관** (Play Store 필수)
+2. **APK → AAB 전환** (Play Store는 App Bundle 표준, 설치 크기 ~17MB로 줄어듦)
+3. **커스텀 도메인 + 브랜드 발신자** (현재 `0921sean@gmail.com`에서 발송 — 100명 가까워지면 어색)
+4. **Sentry 같은 크래시 리포트** (5K events/월 무료)
+5. **메모 카테고리 수동 변경 UI 없음** — 현재는 카테고리 안에서 새로 적거나 AI 자동분류만 가능
+6. **iOS 빌드** (signing 세팅 + TestFlight) — 아이콘 asset은 준비됨
 
 ## 다음 세션에서 자주 막히는 포인트
 

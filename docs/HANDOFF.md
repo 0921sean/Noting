@@ -20,9 +20,9 @@ CLAUDE.md를 먼저 읽고 이 문서로 오세요. 여기는 *왜 이렇게 짰
   프록시함. 앱은 자기 Supabase JWT로 함수를 부르고, 함수가 키 붙여 전달.
 - **이유**: APK 안에 Anthropic 키가 박히면 누구나 추출해서 청구 폭주
   시킬 수 있음. 키를 서버 시크릿에만 두는 게 표준 보안 패턴.
-- **함정 / 미완**: 처음 만든 키가 이미 옛 APK 여러 개에 박혀 배포됐음.
-  현재 Edge Function 시크릿은 *그 옛 키 그대로*. 정말 안전해지려면
-  새 키 발급 → 시크릿 교체 → 옛 키 revoke 필요. 메모에 적혀 있음.
+- **과거 함정 (해결됨, 2026-06-15)**: 처음 만든 키가 옛 APK 여러 개에 박혀
+  배포됐었음. 새 키 발급 → Edge Function 시크릿 교체 → 옛 키 revoke 완료.
+  유출됐던 키는 이제 무력화됨.
 
 ### Anthropic 비용 보호 다층
 - **Anthropic 콘솔**: 월 한도 $50 + $20 알림
@@ -81,10 +81,9 @@ Supabase Auth → Confirm email ON. 미인증 계정은 로그인 자체가 안 
 봇 1차 방어. CAPTCHA는 보류 (Flutter 측 위젯 통합 30분 작업).
 
 ### Anthropic 키
-- **현재 상태**: 이미 노출 상태 (옛 APK에 박혀있음). 친구 jordan이
-  옛 APK 가지고 있을 가능성. 친구가 키 악용할 일은 없지만, 공개
-  배포 직전엔 반드시 회전.
-- **회전 절차**: Anthropic 콘솔 → 새 키 → Supabase Edge Functions →
+- **현재 상태 (2026-06-15)**: 회전 완료. 옛 노출 키(옛 APK에 박혀있던 것)는
+  revoke 했고, Edge Function 시크릿은 새 키로 교체됨. 유출 위험 해소.
+- **회전 절차 (참고용 기록)**: Anthropic 콘솔 → 새 키 → Supabase Edge Functions →
   Secrets → `ANTHROPIC_API_KEY` 새 값으로 교체 → Anthropic 콘솔 옛 키 revoke.
 
 ---
@@ -262,6 +261,7 @@ order by day desc;
 - `DESIGN.md`: 컬러/타이포 시스템
 - `pubspec.yaml`: 의존성 목록 + 버전
 - 기억 폴더 (다음 세션에서 자동 로드):
-  `~/.claude/projects/-Users-cheonseungbeom-Desktop-CSB-MyApps-Noting/memory/`
+  `~/.claude/projects/-Users-hazelnut-Desktop-CSB-MyApps-Noting/memory/`
   - `commit-workflow.md`
-  - `rotate-anthropic-key.md` ← 미해결 TODO
+  - `mac-mini-dev-env.md` ← fvm(3.19.6)/JDK17 빌드 환경
+  - `build-uploads-to-drive.md` ← 빌드 시 Drive 업로드
