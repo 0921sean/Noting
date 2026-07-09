@@ -37,8 +37,14 @@ Anthropic 키 보호 목적으로만 Edge Function 거침.
 
 ## 커밋·배포 규칙 (중요)
 
-- **커밋 메시지 형식**: `v{VERSION} - 한글 설명` (`v1.0.0 - 카테고리 클라우드 이전`)
+- **커밋 메시지 형식**: `type: 무엇을 왜` (type = feat/fix/refactor/docs/test/chore, 설명은 한국어 OK)
+  - 예) `feat: 랜덤 회상 알림 스케줄러 추가` / `fix: 자정 넘어갈 때 날짜 계산 오류 수정`
+  - ❌ `update`·`wip`·`작업함` 같은 무의미 메시지 금지, ❌ 초록칸 채우기용 빈 커밋 금지 (히스토리는 채용 때 평가됨)
+  - (2026-07-10 이전 커밋들은 옛 `v{VERSION} - 한글 설명` 형식 — 소급 변경 안 함)
 - **Co-Authored-By 라인 없음** — 기존 리포 컨벤션
+- **의미 단위 커밋**: 기능 1개 / 버그 1개 / 리팩터 1개 = 커밋 1개. 세션 전체를 한 커밋으로 뭉치지 않음.
+- **세션 시작**: `git status` → origin 있으면 `git pull`(다른 기기 작업분 반영). origin 없으면 즉시 알림.
+- **세션 끝**: 남은 변경 전부 커밋 → `git push`. 마지막 응답에 "이번 세션에 한 일" 1~2줄 요약.
 - **main에 직접 푸시** (PR/브랜치 없이) — `git add -A && git commit && git push origin main`
 - **릴리스 빌드**: `./build_release.sh` → APK 빌드 + Google Drive 자동 업로드 + GitHub push
   - rclone 설정 필요 (gdrive: 리모트), 없어도 빌드는 됨
