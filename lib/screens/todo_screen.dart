@@ -318,8 +318,9 @@ class _TodoScreenState extends State<TodoScreen> {
   }
 
   Future<void> _deleteTodo(Todo todo) async {
-    await SupabaseService.deleteTodo(todo.id!);
-    if (!mounted) return;
+    // dismiss된 위젯이 다음 빌드에 남지 않도록 로컬 리스트에서 즉시 제거(낙관적).
+    // Supabase 삭제는 뒤이어 비동기로 진행 — 네트워크 대기 중 리빌드가 나도
+    // Dismissible이 트리에 남지 않는다.
     setState(() {
       _activeRecordIds.remove(todo.id);
       _timerStartTimes.remove(todo.id);
@@ -328,6 +329,7 @@ class _TodoScreenState extends State<TodoScreen> {
     });
     _refreshNudge();
     _refreshTimerBanner();
+    await SupabaseService.deleteTodo(todo.id!);
   }
 
   // ─── 타이머 (TimeRecord 기반) ─────────────────────────────────────────────

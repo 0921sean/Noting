@@ -3,7 +3,7 @@
 > **매 세션 프로토콜:** 시작 시 이 파일을 먼저 읽고, 끝에 갱신한다.
 > (CLAUDE.md = *고정 지침* / 이 파일 = *매 세션 바뀌는 진행상황·다음 할 일*)
 > `claude -p` 는 스테이트리스라, 이 파일이 세션 간 기억이다.
-> updated: 2026-07-17
+> updated: 2026-07-17 (투두 Dismissible 삭제 버그 수정)
 
 ## 지금 방향 (2026-07-13 결정)
 - 에러 다수 해결 중 → 해결 후 **메모 기능과 분리해 '플래너 전용 앱'으로 출시** 계획.
@@ -21,5 +21,6 @@
 - 가입/로그인/인증/계정삭제, PostHog 6이벤트, AI 자동분류(Edge Function), 다기기 동기화, 사용법 가이드.
 
 ## 최근 세션 로그 (최신이 위)
+- **2026-07-17** — fix: 투두 스와이프 삭제 후 드래그 시 뜨던 'A dismissed Dismissible widget is still part of the tree' 에러 수정. 원인은 `_deleteTodo`가 Supabase 삭제(await)를 먼저 하고 로컬 리스트 제거를 나중에 해서, 네트워크 대기 중 리빌드가 나면 dismiss된 위젯이 트리에 남던 것. 로컬 제거+setState를 먼저(낙관적) → Supabase 삭제를 뒤로 재배치. (todo_screen.dart만 수정)
 - 2026-07-17 — 오케스트레이션 파이프라인 검증(claude -p 루프 정상 동작 확인).
 - **2026-07-17** — (Agent Orchestration 셋업) PROGRESS.md 도입 + CLAUDE.md에 세션 프로토콜 추가. 코드 변경 없음.
