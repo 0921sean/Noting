@@ -2,6 +2,8 @@
 
 > 이 문서는 *채팅 기억이 안 넘어가는* 다음 세션을 위한 핵심 컨텍스트.
 > 자세한 건 [docs/HANDOFF.md](docs/HANDOFF.md) 참고.
+>
+> ⚠️ **세션 프로토콜 (필수):** 시작 시 **[PROGRESS.md](PROGRESS.md) 먼저 읽어** 진행상황·다음 할 일 파악 → 작업 → **세션 끝에 PROGRESS.md 갱신**(한 일 + 다음 할 일 + `updated:` 날짜). 이 CLAUDE.md는 *고정 지침*, PROGRESS.md는 *살아있는 상태*다.
 
 ## 한 줄 정체
 
