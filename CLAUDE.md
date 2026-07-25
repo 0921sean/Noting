@@ -37,17 +37,28 @@ Anthropic 키 보호 목적으로만 Edge Function 거침.
 - **Service 패턴**: `static` 메서드만 (CategoryService, SupabaseService 등)
 - **Models**: 단순 데이터 클래스 + `fromMap`/`toMap`
 
-## 커밋·배포 규칙 (중요)
+## Git · 개발 컨벤션 (중요)
 
-- **커밋 메시지 형식**: `type: 무엇을 왜` (type = feat/fix/refactor/docs/test/chore, 설명은 한국어 OK)
-  - 예) `feat: 랜덤 회상 알림 스케줄러 추가` / `fix: 자정 넘어갈 때 날짜 계산 오류 수정`
-  - ❌ `update`·`wip`·`작업함` 같은 무의미 메시지 금지, ❌ 초록칸 채우기용 빈 커밋 금지 (히스토리는 채용 때 평가됨)
-  - (2026-07-10 이전 커밋들은 옛 `v{VERSION} - 한글 설명` 형식 — 소급 변경 안 함)
-- **Co-Authored-By 라인 없음** — 기존 리포 컨벤션
-- **의미 단위 커밋**: 기능 1개 / 버그 1개 / 리팩터 1개 = 커밋 1개. 세션 전체를 한 커밋으로 뭉치지 않음.
-- **세션 시작**: `git status` → origin 있으면 `git pull`(다른 기기 작업분 반영). origin 없으면 즉시 알림.
-- **세션 끝**: 남은 변경 전부 커밋 → `git push`. 마지막 응답에 "이번 세션에 한 일" 1~2줄 요약.
-- **main에 직접 푸시** (PR/브랜치 없이) — `git add -A && git commit && git push origin main`
+> 전체 규칙은 [CONVENTION.md](CONVENTION.md). 핵심 = **모든 작업을 이슈에서 시작해 같은 `#번호`로 끝까지(브랜치·커밋·PR) 끌고 가는 추적성.**
+
+- **작업 흐름**: 이슈1 → `type/#번호` 브랜치1 → 커밋 여러 개 → PR1 → (내가) 머지 → 이슈 종료.
+- **4곳 `#번호` 포맷** (전부 **이슈** 번호):
+  - 이슈 제목 `[Type] #번호 - 내용` / 브랜치 `type/#번호` / 커밋 `[Type/#번호] 내용` / PR 제목 `[Type] #번호 - 내용`(본문 `Resolved: #번호`)
+  - PR 자신의 번호는 GitHub이 이슈와 공유 카운터로 따로 매기므로 이슈 번호와 다른 게 정상(예: 이슈 #7 → PR #8). 언제나 **이슈** 번호를 쓴다.
+- **Type**: Feat/Fix/Hotfix/Refactor/Design/Setting/Docs/Test/Chore
+- **`main` 직접 커밋·푸시 금지.** 항상 브랜치 → PR 경유. (긴급 Hotfix만 예외, 사후 이슈 기록)
+- **Co-Authored-By 라인 없음** — 기존 리포 컨벤션.
+- **의미 단위 커밋**: 기능 1개 / 버그 1개 / 리팩터 1개 = 커밋 1개. ❌ `update`·`wip`·`작업함`·빈 커밋 금지 (히스토리는 채용 때 평가됨). (2026-07-10 이전 커밋들은 옛 포맷 — 소급 변경 안 함)
+- **세션 시작**: `git status` → `git pull`(다른 기기 작업분 반영).
+- **세션 끝**: 남은 변경은 작업 브랜치에 커밋 → `git push`. 마지막 응답에 "이번 세션에 한 일" 1~2줄 요약.
+
+### ⚠️ 절대 규칙 2개 (반드시 지킴)
+
+1. **머지는 절대 자동으로 하지 않는다.** CI가 초록이어도 `"CI 초록, 리뷰 대기"`에서 멈추고 사용자에게 넘긴다. **사용자가 리뷰하고 직접 머지한다.** 승인은 **PR별**이다 — 한 PR의 OK가 다음 PR로 이어지지 않는다.
+2. **PR 코멘트엔 프롬프트(채팅)에서 답하지 않고 PR에서 직접 답글**을 단다(팀원처럼). 질문이면 답글로, `P1 …` 같은 수정요청이면 **같은 브랜치에 커밋을 추가**하고 그 내용으로 답글을 단다.
+
+### 배포
+
 - **릴리스 빌드**: `./build_release.sh` → APK 빌드 + Google Drive 자동 업로드 + GitHub push
   - rclone 설정 필요 (gdrive: 리모트), 없어도 빌드는 됨
   - APK 위치: `gdrive:Apps/Noting/releases/noting-v1.0.0.apk` + 로컬 `build/app/outputs/flutter-apk/`
