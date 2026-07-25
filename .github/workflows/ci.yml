@@ -17,11 +17,12 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Stub lib/config.dart
-        # 실제 config.dart는 gitignore(시크릿). CI엔 없어서 analyze/test가
-        # "target of URI doesn't exist"로 깨진다. 컴파일만 통과시킬 placeholder를
-        # 만든다 — 실제 Supabase/PostHog 값 아님(네트워크 안 씀). kPostHogApiKey가
-        # 빈 문자열이면 분석 비활성이라 앱 로직상으로도 안전한 더미.
+      - name: Stub gitignored files (config + fonts)
+        # gitignore된 파일들이 CI엔 없어서 analyze가 깨진다:
+        #  1) lib/config.dart(시크릿) 없으면 "target of URI doesn't exist"
+        #  2) assets/fonts/(폰트 바이너리) 없으면 asset_directory_does_not_exist 경고
+        # 둘 다 placeholder로 채워 컴파일/분석만 통과시킨다 — 실제 값·폰트 아님(네트워크·렌더 안 씀).
+        # config는 kPostHogApiKey='' 라 분석 비활성이라 앱 로직상으로도 안전한 더미.
         run: |
           cat > lib/config.dart <<'DART'
           // CI placeholder — 실제 시크릿 아님 (workflows/ci.yml에서 생성)
@@ -30,6 +31,8 @@ jobs:
           const kPostHogApiKey = '';
           const kPostHogHost = 'https://us.i.posthog.com';
           DART
+          mkdir -p assets/fonts
+          touch assets/fonts/BinggraeSamanco-Bold.otf
 
       - name: Install dependencies
         run: flutter pub get
