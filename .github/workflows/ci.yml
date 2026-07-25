@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.19.6" # FVM(.fvmrc)과 동일 핀
+          channel: stable
+          cache: true
+
+      - name: Stub lib/config.dart
+        # 실제 config.dart는 gitignore(시크릿). CI엔 없어서 analyze/test가
+        # "target of URI doesn't exist"로 깨진다. 컴파일만 통과시킬 placeholder를
+        # 만든다 — 실제 Supabase/PostHog 값 아님(네트워크 안 씀). kPostHogApiKey가
+        # 빈 문자열이면 분석 비활성이라 앱 로직상으로도 안전한 더미.
+        run: |
+          cat > lib/config.dart <<'DART'
+          // CI placeholder — 실제 시크릿 아님 (workflows/ci.yml에서 생성)
+          const kSupabaseUrl = 'https://example.supabase.co';
+          const kSupabaseAnonKey = 'ci-placeholder-anon-key';
+          const kPostHogApiKey = '';
+          const kPostHogHost = 'https://us.i.posthog.com';
+          DART
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        # --no-fatal-infos: 에러·경고는 여전히 CI를 빨갛게 만들지만, showcaseview 등
+        # 서드파티 라이브러리의 deprecated_member_use 같은 info는 무시한다(현재 14건).
+        # 그래야 CI가 "내 변경이 만든 실제 회귀"만 잡는다. info까지 잡으려면 앱 코드를
+        # 손대야 하는데 이 도입은 인프라만 건드리는 surgical 작업이라 범위 밖.
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run offline-safe tests
+        # 네트워크/API키/DB 없이 도는 유닛 테스트만. Supabase/PostHog/Anthropic를
+        # 실제로 때리는 통합 테스트는 추후 secrets 붙인 별도 워크플로우로 분리.
+        run: flutter test test/regression_test.dart test/widget_test.dart

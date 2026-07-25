@@ -48,3 +48,10 @@ assets/fonts/
 
 # FVM Version Cache
 .fvm/
+# Secrets / local-only (커밋 금지)
+.env
+.env.*
+*.env
+*.db
+*.session
+*.session-journal
