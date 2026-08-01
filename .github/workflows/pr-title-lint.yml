@@ -17,12 +17,12 @@ jobs:
         env:
           TITLE: ${{ github.event.pull_request.title }}
         run: |
-          pattern='^\[(Feat|Fix|Hotfix|Refactor|Design|Setting|Docs|Test|Chore)\] #[0-9]+ - .+'
+          pattern='^\[(Epic|Feat|Fix|Hotfix|Refactor|Design|Setting|Docs|Test|Chore)\] #[0-9]+ - .+'
           if echo "$TITLE" | grep -qE "$pattern"; then
             echo "✓ 제목 형식 OK: $TITLE"
           else
             echo "✗ PR 제목 컨벤션 위반: '$TITLE'"
             echo "  형식: [Type] #번호 - 내용"
-            echo "  Type: Feat/Fix/Hotfix/Refactor/Design/Setting/Docs/Test/Chore"
+            echo "  Type: Epic/Feat/Fix/Hotfix/Refactor/Design/Setting/Docs/Test/Chore"
             exit 1
           fi
