@@ -1070,8 +1070,16 @@ class _TodoScreenState extends State<TodoScreen> {
       child: Dismissible(
         key: ValueKey('todo-dismiss-${todo.id}'),
         direction: DismissDirection.endToStart,
-        confirmDismiss: (_) => _confirmDelete(),
-        onDismissed: (_) => _deleteTodo(todo),
+        // ReorderableListView 안에서 Dismissible이 실제로 dismiss되면
+        // "A dismissed Dismissible widget is still part of the tree" 에러가
+        // 특정 타이밍에 재발한다. 그래서 confirmDismiss에서 직접 삭제하고
+        // 항상 false를 반환해 Dismissible이 스스로 dismiss되지 않게 한다.
+        // 항목은 _deleteTodo의 setState로 리스트에서 즉시 빠져 rebuild로 사라진다.
+        confirmDismiss: (_) async {
+          final ok = await _confirmDelete();
+          if (ok) unawaited(_deleteTodo(todo));
+          return false;
+        },
         background: Container(
           alignment: Alignment.centerRight,
           padding: const EdgeInsets.only(right: 8),
