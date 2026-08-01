@@ -37,6 +37,11 @@ Anthropic 키 보호 목적으로만 Edge Function 거침.
 - **Service 패턴**: `static` 메서드만 (CategoryService, SupabaseService 등)
 - **Models**: 단순 데이터 클래스 + `fromMap`/`toMap`
 
+## ⛔ 불변 제약 (UI/셸 작업 시 반드시 지킴)
+
+- **플래너 출력은 100% 불변.** `planner_screen.dart`·`utils/planner_colors.dart`·`Todo`/`TimeRecord` 필드는 UI/테마 리팩터로도 건드리지 않는다(공유 플래너는 앱 테마를 안 읽고 색을 하드코딩 — 테마 바꿔도 출력 그대로). 딸려 바뀔 위험 있으면 먼저 경고.
+- **메모 데이터·랜덤 회상 로직은 삭제 금지(강등만).** 메모+회상(랜덤 알림→메모 재방문)이 차별점 — 지표로 검증하기 전엔 유지. 현재 회상 전용 계측 이벤트는 없음(`app_open{source:memo_reminder}`로만 간접 관측).
+
 ## Git · 개발 컨벤션 (중요)
 
 > 전체 규칙은 [CONVENTION.md](CONVENTION.md). 핵심 = **모든 작업을 이슈에서 시작해 같은 `#번호`로 끝까지(브랜치·커밋·PR) 끌고 가는 추적성.**
