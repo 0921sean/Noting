@@ -64,7 +64,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    _mode = widget.startInTodos ? _AppMode.todos : _AppMode.notes;
+    // 투두가 기본(첫) 화면. 메모 리마인더로 열렸을 때만 메모 탭으로 진입.
+    _mode = widget.initialNoteId != null ? _AppMode.notes : _AppMode.todos;
     WidgetsBinding.instance.addObserver(this);
     _loadCoachFlag();
     _loadAll().then((_) {
@@ -415,152 +416,117 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       },
       child: Scaffold(
+        appBar: _buildAppBar(),
         body: SafeArea(
-          child: Column(
+          top: false,
+          child: IndexedStack(
+            index: _mode == _AppMode.todos ? 0 : 1,
             children: [
-              _buildAppBar(),
-              _buildModeToggle(),
-              Expanded(child: _buildContent()),
+              const TodoScreen(),
+              _buildNotesBody(),
             ],
           ),
         ),
+        bottomNavigationBar: _buildBottomNav(),
       ),
     );
   }
 
-  Widget _buildContent() {
-    if (_mode == _AppMode.todos) return const TodoScreen();
+  Widget _buildNotesBody() {
     if (_loading) return const Center(child: CircularProgressIndicator());
     return _buildCategoryGrid();
   }
 
-  Widget _buildModeToggle() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-      child: Container(
-        height: 36,
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.onSurface.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(20),
+  Widget _buildBottomNav() {
+    return NavigationBar(
+      height: 60, // M3 기본 80은 너무 높음 — 컴팩트하게
+      labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+      selectedIndex: _mode == _AppMode.todos ? 0 : 1,
+      onDestinationSelected: (i) =>
+          _setMode(i == 0 ? _AppMode.todos : _AppMode.notes),
+      destinations: const [
+        NavigationDestination(
+          icon: Icon(Icons.check_circle_outline),
+          selectedIcon: Icon(Icons.check_circle),
+          label: '투두',
         ),
-        child: Row(children: [
-          _modeTab('메모', _AppMode.notes),
-          _modeTab('투두', _AppMode.todos),
-        ]),
-      ),
+        NavigationDestination(
+          icon: Icon(Icons.sticky_note_2_outlined),
+          selectedIcon: Icon(Icons.sticky_note_2),
+          label: '메모',
+        ),
+      ],
     );
   }
 
-  Widget _modeTab(String label, _AppMode mode) {
-    final selected = _mode == mode;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => _setMode(mode),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          margin: const EdgeInsets.all(3),
-          decoration: BoxDecoration(
-            color: selected
-                ? Theme.of(context).colorScheme.surface
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(17),
-            boxShadow: selected
-                ? [BoxShadow(
-                    color: Colors.black.withOpacity(0.07),
-                    blurRadius: 4,
-                    offset: const Offset(0, 1))]
-                : null,
-          ),
-          child: Center(
-            child: Text(label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                  color: selected
-                      ? Theme.of(context).colorScheme.onSurface
-                      : Theme.of(context).colorScheme.onSurface.withOpacity(0.45),
-                )),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAppBar() {
+  PreferredSizeWidget _buildAppBar() {
     final cs = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 16, 10),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Noting',
-                  style: TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.5,
-                    color: cs.onSurface,
-                  )),
-              Text('${_notes.length}개의 생각',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: cs.onSurface.withOpacity(0.55),
-                  )),
-            ],
-          ),
-          const Spacer(),
-          if (_mode == _AppMode.notes)
-            buildCoachMark(
-              context: context,
-              key: _addKey,
-              title: '카테고리 추가',
-              description: '여기를 눌러 카테고리를 직접 만들 수 있어요.',
-              targetShapeBorder: const CircleBorder(),
-              targetPadding: const EdgeInsets.all(4),
-              child: IconButton(
-                icon: Icon(Icons.add_rounded,
-                    size: 24, color: cs.onSurface.withOpacity(0.5)),
-                tooltip: '카테고리 추가',
-                onPressed: _addCategory,
-              ),
+    final isNotes = _mode == _AppMode.notes;
+    return AppBar(
+      backgroundColor: cs.surface,
+      elevation: 0,
+      scrolledUnderElevation: 0,
+      toolbarHeight: 50,
+      titleSpacing: 24,
+      title: Text('Noting',
+          style: TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.5,
+            color: cs.onSurface,
+          )),
+      actions: [
+        if (isNotes)
+          buildCoachMark(
+            context: context,
+            key: _addKey,
+            title: '카테고리 추가',
+            description: '여기를 눌러 카테고리를 직접 만들 수 있어요.',
+            targetShapeBorder: const CircleBorder(),
+            targetPadding: const EdgeInsets.all(4),
+            child: IconButton(
+              icon: Icon(Icons.add_rounded,
+                  size: 24, color: cs.onSurface.withOpacity(0.5)),
+              tooltip: '카테고리 추가',
+              onPressed: _addCategory,
             ),
-          if (_mode == _AppMode.notes)
-            _classifying
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: SizedBox(
-                      width: 18, height: 18,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: cs.primary),
-                    ),
-                  )
-                : buildCoachMark(
-                    context: context,
-                    key: _aiKey,
-                    title: 'AI 자동분류',
-                    description: '미분류 메모를 AI가 알아서 카테고리에 정리해줘요.',
-                    targetShapeBorder: const CircleBorder(),
-                    targetPadding: const EdgeInsets.all(4),
-                    child: IconButton(
-                      icon: Icon(Icons.auto_awesome_outlined,
-                          size: 20, color: cs.onSurface.withOpacity(0.5)),
-                      tooltip: 'AI 자동분류',
-                      onPressed: _autoClassify,
-                    ),
-                  ),
-          IconButton(
-            icon: Icon(Icons.settings_outlined,
-                size: 22, color: cs.onSurface.withOpacity(0.5)),
-            onPressed: () {
-              Navigator.of(context)
-                  .push(MaterialPageRoute(builder: (_) => const SettingsScreen()))
-                  .then((_) => _loadAll());
-            },
           ),
-        ],
-      ),
+        if (isNotes)
+          _classifying
+              ? Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, color: cs.primary),
+                  ),
+                )
+              : buildCoachMark(
+                  context: context,
+                  key: _aiKey,
+                  title: 'AI 자동분류',
+                  description: '미분류 메모를 AI가 알아서 카테고리에 정리해줘요.',
+                  targetShapeBorder: const CircleBorder(),
+                  targetPadding: const EdgeInsets.all(4),
+                  child: IconButton(
+                    icon: Icon(Icons.auto_awesome_outlined,
+                        size: 20, color: cs.onSurface.withOpacity(0.5)),
+                    tooltip: 'AI 자동분류',
+                    onPressed: _autoClassify,
+                  ),
+                ),
+        IconButton(
+          icon: Icon(Icons.settings_outlined,
+              size: 22, color: cs.onSurface.withOpacity(0.5)),
+          onPressed: () {
+            Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const SettingsScreen()))
+                .then((_) => _loadAll());
+          },
+        ),
+        const SizedBox(width: 8),
+      ],
     );
   }
 
