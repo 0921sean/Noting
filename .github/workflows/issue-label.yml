@@ -25,6 +25,7 @@ jobs:
         run: |
           type=$(echo "$TITLE" | sed -n 's/^\[\([A-Za-z]*\)\].*/\1/p')
           case "$type" in
+            Epic)     label="Epic 🗂️";;
             Feat)     label="Feat 💻";;
             Fix)      label="Fix 🐛";;
             Hotfix)   label="Hotfix 🚨";;
