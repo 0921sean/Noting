@@ -104,6 +104,34 @@ class SupabaseService {
     return Todo.fromMap(row);
   }
 
+  /// 여러 투두를 한 번에 생성 (어제 미완료 복사 등).
+  /// createTodo를 N번 부르면 왕복이 2N회지만, 이건 order 조회 1 + 삽입 1 = 2회로 끝난다.
+  static Future<List<Todo>> createTodosBatch(
+      List<String> texts, String date) async {
+    if (texts.isEmpty) return [];
+    final rows = await _db
+        .from('noting_todos')
+        .select('order_index')
+        .eq('date', date)
+        .order('order_index', ascending: false)
+        .limit(1);
+    var next = rows.isEmpty ? 0 : ((rows.first['order_index'] as int) + 1);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final payload = [
+      for (final t in texts)
+        {
+          'user_id': _uid,
+          'text': t,
+          'date': date,
+          'done': 0,
+          'created_at': now,
+          'order_index': next++,
+        }
+    ];
+    final inserted = await _db.from('noting_todos').insert(payload).select();
+    return inserted.map(Todo.fromMap).toList();
+  }
+
   static Future<List<Todo>> readAllTodos() async {
     final rows = await _db
         .from('noting_todos')
