@@ -43,6 +43,8 @@ class _TodoScreenState extends State<TodoScreen> {
   Timer? _elapsedTicker;
   // 날짜별 시간 기록 (todoId → List<TimeRecord>)
   Map<int, List<TimeRecord>> _timeRecords = {};
+  // 날짜키 → 그 날짜의 시간 기록. 날짜 전환 시 재조회 없이 즉시 표시하기 위한 캐시.
+  final Map<String, Map<int, List<TimeRecord>>> _recordsByDate = {};
 
   // 첫 진입 코치마크
   final _addKey = GlobalKey();
@@ -179,6 +181,7 @@ class _TodoScreenState extends State<TodoScreen> {
         });
       }
     }
+    _recordsByDate[todayKey] = records;
     setState(() {
       _byDate = map;
       _timeRecords = records;
@@ -191,9 +194,17 @@ class _TodoScreenState extends State<TodoScreen> {
   }
 
   Future<void> _loadTimeRecordsForDate(String dateKey) async {
+    // 캐시가 있으면 즉시 표시(대기 0) → 네트워크는 백그라운드로 최신값만 반영.
+    final cached = _recordsByDate[dateKey];
+    if (cached != null) {
+      setState(() => _timeRecords = cached);
+    }
     final records =
         await SupabaseService.readTimeRecordsForDate(dateKey);
     if (!mounted) return;
+    _recordsByDate[dateKey] = records;
+    // 그새 다른 날짜로 넘어갔으면 화면 반영은 생략(캐시에는 저장됨).
+    if (_key(_selectedDate) != dateKey) return;
     setState(() => _timeRecords = records);
   }
 
@@ -471,12 +482,11 @@ class _TodoScreenState extends State<TodoScreen> {
       );
       return;
     }
-    for (final todo in incomplete) {
-      final created =
-          await SupabaseService.createTodo(todo.text, _selKey);
-      if (!mounted) return;
-      setState(() => _byDate.putIfAbsent(_selKey, () => []).add(created));
-    }
+    // 한 개씩 await하면 왕복이 2N회 → 배치로 2회. (복사 지연의 주원인)
+    final created = await SupabaseService.createTodosBatch(
+        incomplete.map((t) => t.text).toList(), _selKey);
+    if (!mounted) return;
+    setState(() => _byDate.putIfAbsent(_selKey, () => []).addAll(created));
     _refreshNudge();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
