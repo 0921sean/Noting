@@ -262,10 +262,13 @@ class _TodoScreenState extends State<TodoScreen> {
     final text = _addController.text.trim();
     if (text.isEmpty) return;
     _addController.clear();
-    final todo = await SupabaseService.createTodo(text, _selKey);
+    // 생성 중(await)에 사용자가 페이지를 넘기면 _selKey가 바뀐다.
+    // 생성 시점의 날짜키를 고정해, 완료 후 리스트도 그 날짜에 넣는다.
+    final targetKey = _selKey;
+    final todo = await SupabaseService.createTodo(text, targetKey);
     AnalyticsService.todoCreated();
     if (!mounted) return;
-    setState(() => _byDate.putIfAbsent(_selKey, () => []).add(todo));
+    setState(() => _byDate.putIfAbsent(targetKey, () => []).add(todo));
     _refreshNudge();
   }
 
@@ -482,11 +485,14 @@ class _TodoScreenState extends State<TodoScreen> {
       );
       return;
     }
+    // 배치 삽입 중(await)에 페이지를 넘기면 _selKey가 바뀐다.
+    // 복사 시점의 날짜키를 고정해, 완료 후 리스트도 그 날짜에 넣는다.
+    final targetKey = _selKey;
     // 한 개씩 await하면 왕복이 2N회 → 배치로 2회. (복사 지연의 주원인)
     final created = await SupabaseService.createTodosBatch(
-        incomplete.map((t) => t.text).toList(), _selKey);
+        incomplete.map((t) => t.text).toList(), targetKey);
     if (!mounted) return;
-    setState(() => _byDate.putIfAbsent(_selKey, () => []).addAll(created));
+    setState(() => _byDate.putIfAbsent(targetKey, () => []).addAll(created));
     _refreshNudge();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
