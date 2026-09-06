@@ -466,17 +466,36 @@ class _TodoScreenState extends State<TodoScreen> {
       (_timeRecords[todoId]?.isNotEmpty ?? false) ||
       _activeRecordIds.containsKey(todoId);
 
-  // ─── 어제 투두 복사 ──────────────────────────────────────────────────────────
-  Future<void> _copyFromYesterday() async {
-    final yesterday = _selectedDate.subtract(const Duration(days: 1));
-    final yesterdayKey = _key(yesterday);
-    final incomplete =
-        (_byDate[yesterdayKey] ?? []).where((t) => !t.done).toList();
+  // ─── 밀린 투두 복사 ──────────────────────────────────────────────────────────
+  // 선택한 날짜 "이전"의 모든 미완료 할 일을 오늘 목록으로 모아온다.
+  // (어제 하루가 아니라 지금까지 쌓인 미완료 전부)
+  Future<void> _copyIncompletePast() async {
+    // 배치 삽입 중(await)에 페이지를 넘기면 _selKey가 바뀐다.
+    // 복사 시점의 날짜키를 고정해, 완료 후 리스트도 그 날짜에 넣는다.
+    final targetKey = _selKey;
+    // 같은 내용이 여러 날에 밀려 중복돼 있을 수 있으니 텍스트로 중복 제거하고,
+    // 이미 오늘 목록에 있는 내용은 건너뛴다(반복 클릭 시 중복 방지 포함).
+    final existing = (_byDate[targetKey] ?? []).map((t) => t.text).toSet();
+    final seen = <String>{};
+    final texts = <String>[];
+    // 날짜키(YYYY-MM-DD)는 사전순 = 시간순 → 오래된 날부터 모은다.
+    final pastKeys = _byDate.keys
+        .where((k) => k.compareTo(targetKey) < 0)
+        .toList()
+      ..sort();
+    for (final k in pastKeys) {
+      for (final t in (_byDate[k] ?? [])) {
+        if (t.done) continue;
+        if (existing.contains(t.text)) continue;
+        if (!seen.add(t.text)) continue;
+        texts.add(t.text);
+      }
+    }
     if (!mounted) return;
-    if (incomplete.isEmpty) {
+    if (texts.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('어제 미완료 할 일이 없어요'),
+          content: const Text('가져올 밀린 할 일이 없어요'),
           behavior: SnackBarBehavior.floating,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -485,19 +504,15 @@ class _TodoScreenState extends State<TodoScreen> {
       );
       return;
     }
-    // 배치 삽입 중(await)에 페이지를 넘기면 _selKey가 바뀐다.
-    // 복사 시점의 날짜키를 고정해, 완료 후 리스트도 그 날짜에 넣는다.
-    final targetKey = _selKey;
     // 한 개씩 await하면 왕복이 2N회 → 배치로 2회. (복사 지연의 주원인)
-    final created = await SupabaseService.createTodosBatch(
-        incomplete.map((t) => t.text).toList(), targetKey);
+    final created = await SupabaseService.createTodosBatch(texts, targetKey);
     if (!mounted) return;
     setState(() => _byDate.putIfAbsent(targetKey, () => []).addAll(created));
     _refreshNudge();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('어제 할 일 ${incomplete.length}개 가져왔어요'),
+        content: Text('밀린 할 일 ${created.length}개 가져왔어요'),
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 2),
@@ -1008,8 +1023,8 @@ class _TodoScreenState extends State<TodoScreen> {
           buildCoachMark(
             context: context,
             key: _copyKey,
-            title: '어제 할 일 가져오기',
-            description: '어제 끝내지 못한 할 일을\n오늘 목록으로 한 번에 옮겨와요.',
+            title: '밀린 할 일 가져오기',
+            description: '지금까지 못 끝낸 할 일을\n오늘 목록으로 한 번에 모아와요.',
             targetShapeBorder: const CircleBorder(),
             child: IconButton(
               icon: Icon(Icons.copy_outlined,
@@ -1018,8 +1033,8 @@ class _TodoScreenState extends State<TodoScreen> {
                       .colorScheme
                       .onSurface
                       .withOpacity(0.38)),
-              onPressed: _copyFromYesterday,
-              tooltip: '어제 할 일 가져오기',
+              onPressed: _copyIncompletePast,
+              tooltip: '밀린 할 일 가져오기',
             ),
           ),
           buildCoachMark(
