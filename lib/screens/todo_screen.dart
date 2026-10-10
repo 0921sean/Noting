@@ -46,6 +46,21 @@ class _TodoScreenState extends State<TodoScreen> {
   // 날짜키 → 그 날짜의 시간 기록. 날짜 전환 시 재조회 없이 즉시 표시하기 위한 캐시.
   final Map<String, Map<int, List<TimeRecord>>> _recordsByDate = {};
 
+  // ─── 비동기 작업 진행 상태 ────────────────────────────────────────────────
+  // 네트워크 왕복 중에 사용자가 같은/다른 버튼을 또 누르면 두 작업이 겹쳐
+  // 결과가 꼬인다(중복 삽입, 고아 레코드, 서로의 변경 되돌리기).
+  // 그래서 "진행 중" 상태를 들고 버튼을 잠그고 스피너를 보여준다.
+  bool _copying = false; // 밀린 할 일 가져오기
+  bool _adding = false; // 할 일 추가
+  // 투두별 진행 중 작업 — 해당 항목의 버튼만 잠근다(다른 항목은 계속 조작 가능).
+  final Set<int> _timerBusy = {}; // 타이머 시작/종료
+  final Set<int> _todoBusy = {}; // 완료 토글 / 텍스트 저장
+  bool _reordering = false;
+
+  // 날짜를 바꾸면 안 되는 상황 — 복사는 "어느 날짜로 가져오는가"가 핵심이라
+  // 진행 중 날짜가 바뀌면 사용자가 결과를 오해한다(실제 삽입은 targetKey로 정확).
+  bool get _dateLocked => _copying;
+
   // 첫 진입 코치마크
   final _addKey = GlobalKey();
   final _copyKey = GlobalKey();
@@ -212,10 +227,13 @@ class _TodoScreenState extends State<TodoScreen> {
   // 오늘 미완료 투두가 있으면 90분 타이머 예약, 없으면 취소.
   // _toggleDone(완료 방향)에서 호출 시 타이머가 지금 시각 기준으로 리셋됨.
   // 단, 타이머가 진행 중이면 "지금 일하고 있는 중"이므로 nudge를 띄우지 않음.
-  void _refreshNudge({bool completedNow = false}) {
+  // dateKey: 작업이 "어느 날짜에" 일어났는지. 비동기 작업이 끝난 뒤 호출할 땐
+  // 그 사이 화면 날짜가 바뀌었을 수 있으므로, _selKey를 다시 읽지 말고
+  // 작업 시작 시점에 캡처한 키를 넘긴다(안 넘기면 현재 화면 기준).
+  void _refreshNudge({bool completedNow = false, String? dateKey}) {
     if (kIsWeb) return;
     final todayKey = _key(_today());
-    if (_selKey != todayKey) return;
+    if ((dateKey ?? _selKey) != todayKey) return;
     final todayTodos = _byDate[todayKey] ?? [];
     final hasIncomplete = todayTodos.any((t) => !t.done);
     final timerRunning = _activeRecordIds.isNotEmpty;
@@ -241,11 +259,32 @@ class _TodoScreenState extends State<TodoScreen> {
   void _onPageChanged(int page) {
     final ws = _weekStart(page);
     final dow = _selectedDate.weekday % 7;
-    setState(() => _selectedDate = ws.add(Duration(days: dow)));
+    final day = ws.add(Duration(days: dow));
+    setState(() => _selectedDate = day);
+    // _selectDay와 대칭을 맞춘다. 이게 빠져 있어서 페이저를 스와이프해
+    // 날짜를 바꾸면 시간 기록이 이전 날짜 값으로 남아 있었다.
+    _loadTimeRecordsForDate(_key(day));
     _refreshNudge();
   }
 
+  // 화살표(◀▶)로 주를 넘길 때. animateToPage는 280ms 뒤에야 _onPageChanged를
+  // 부르는데, 그 사이에 복사/추가를 누르면 화면은 새 주인데 작업은 이전 날짜로
+  // 들어갔다. 그래서 _selectedDate를 애니메이션과 무관하게 **먼저** 갱신한다.
+  void _jumpWeek(int delta) {
+    if (_dateLocked) return;
+    final cur = _pageController.page?.round() ?? _kBase;
+    final page = cur + delta;
+    final ws = _weekStart(page);
+    final day = ws.add(Duration(days: _selectedDate.weekday % 7));
+    setState(() => _selectedDate = day);
+    _loadTimeRecordsForDate(_key(day));
+    _refreshNudge();
+    _pageController.animateToPage(page,
+        duration: const Duration(milliseconds: 280), curve: Curves.easeInOut);
+  }
+
   void _selectDay(DateTime day) {
+    if (_dateLocked) return;
     final page = _pageForDate(day);
     final cur = _pageController.page?.round() ?? _kBase;
     if (page != cur) {
@@ -259,45 +298,79 @@ class _TodoScreenState extends State<TodoScreen> {
 
   // ─── 투두 CRUD ───────────────────────────────────────────────────────────────
   Future<void> _addTodo() async {
+    if (_adding) return; // 전송 연타 방지
     final text = _addController.text.trim();
     if (text.isEmpty) return;
     _addController.clear();
     // 생성 중(await)에 사용자가 페이지를 넘기면 _selKey가 바뀐다.
     // 생성 시점의 날짜키를 고정해, 완료 후 리스트도 그 날짜에 넣는다.
     final targetKey = _selKey;
-    final todo = await SupabaseService.createTodo(text, targetKey);
-    AnalyticsService.todoCreated();
-    if (!mounted) return;
-    setState(() => _byDate.putIfAbsent(targetKey, () => []).add(todo));
-    _refreshNudge();
+    setState(() => _adding = true);
+    try {
+      final todo = await SupabaseService.createTodo(text, targetKey);
+      AnalyticsService.todoCreated();
+      if (!mounted) return;
+      setState(() => _byDate.putIfAbsent(targetKey, () => []).add(todo));
+      _refreshNudge(dateKey: targetKey);
+    } catch (e) {
+      if (!mounted) return;
+      // 입력한 텍스트를 날리지 않는다 — 실패하면 돌려주고 다시 보내게.
+      _addController.text = text;
+      _showSnack('추가하지 못했어요. 다시 시도해주세요');
+    } finally {
+      if (mounted) setState(() => _adding = false);
+    }
   }
 
   Future<void> _toggleDone(Todo todo) async {
+    final id = todo.id;
+    if (id == null || _todoBusy.contains(id)) return;
     final completing = !todo.done; // true = 완료로 전환
-    await SupabaseService.updateTodoDone(todo.id!, completing);
-    if (!mounted) return;
-    setState(() {
-      final list = _byDate[todo.date];
-      if (list == null) return;
-      final i = list.indexWhere((t) => t.id == todo.id);
-      if (i != -1) list[i] = todo.copyWith(done: completing);
-    });
-    // 완료 시 → 90분 타이머 리셋 (지금 이 순간부터 90분)
-    _refreshNudge(completedNow: completing);
+    setState(() => _todoBusy.add(id));
+    try {
+      await SupabaseService.updateTodoDone(id, completing);
+      if (!mounted) return;
+      setState(() {
+        final list = _byDate[todo.date];
+        if (list == null) return;
+        final i = list.indexWhere((t) => t.id == id);
+        // await 전에 캡처한 todo가 아니라 **현재 리스트의 항목**을 기준으로
+        // 바꾼다. 그 사이 텍스트 저장이 끝났을 수 있는데, 옛 스냅샷으로
+        // copyWith하면 그 변경을 되돌려버린다(서로 덮어쓰기).
+        if (i != -1) list[i] = list[i].copyWith(done: completing);
+      });
+      _refreshNudge(completedNow: completing);
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('변경하지 못했어요');
+    } finally {
+      if (mounted) setState(() => _todoBusy.remove(id));
+    }
   }
 
   Future<void> _saveEdit(Todo todo) async {
+    final id = todo.id;
     final text = _editController.text.trim();
     setState(() => _editingId = null);
-    if (text.isEmpty || text == todo.text) return;
-    await SupabaseService.updateTodoText(todo.id!, text);
-    if (!mounted) return;
-    setState(() {
-      final list = _byDate[todo.date];
-      if (list == null) return;
-      final i = list.indexWhere((t) => t.id == todo.id);
-      if (i != -1) list[i] = todo.copyWith(text: text);
-    });
+    if (id == null || text.isEmpty || text == todo.text) return;
+    if (_todoBusy.contains(id)) return;
+    setState(() => _todoBusy.add(id));
+    try {
+      await SupabaseService.updateTodoText(id, text);
+      if (!mounted) return;
+      setState(() {
+        final list = _byDate[todo.date];
+        if (list == null) return;
+        final i = list.indexWhere((t) => t.id == id);
+        // _toggleDone과 같은 이유로 현재 항목 기준으로 갱신한다.
+        if (i != -1) list[i] = list[i].copyWith(text: text);
+      });
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('저장하지 못했어요');
+    } finally {
+      if (mounted) setState(() => _todoBusy.remove(id));
+    }
   }
 
   // 편집 중인 항목이 있으면 변경사항을 자동 저장하고 편집 모드 종료.
@@ -355,28 +428,38 @@ class _TodoScreenState extends State<TodoScreen> {
   bool _isRunning(int todoId) => _activeRecordIds.containsKey(todoId);
 
   Future<void> _startTimer(Todo todo) async {
-    if (todo.id == null || _isRunning(todo.id!)) return;
+    final todoId = todo.id;
+    if (todoId == null || _isRunning(todoId)) return;
+    // ⚠️ _activeRecordIds는 await가 끝난 뒤에야 채워진다. 그래서 _isRunning만
+    // 믿으면 왕복 중 ▶를 두 번 눌렀을 때 둘 다 통과해 TimeRecord가 2개 생기고,
+    // 첫 번째는 endTime이 영원히 null인 고아로 남았다. 별도 in-flight 집합으로 막는다.
+    if (_timerBusy.contains(todoId)) return;
+    setState(() => _timerBusy.add(todoId));
     final s = _nowHHMM();
-    final record =
-        await SupabaseService.createTimeRecord(todo.id!, s);
-    if (!mounted) return;
-    _timerStartTimes[todo.id!] = DateTime.now();
-    // 30초마다 경과시간 갱신 + 알림 배너 재게시(스와이프 해제 시 자동 복귀)
-    _elapsedTicker ??= Timer.periodic(const Duration(seconds: 30), (_) {
+    try {
+      final record = await SupabaseService.createTimeRecord(todoId, s);
       if (!mounted) return;
-      if (_activeRecordIds.isNotEmpty) {
-        setState(() {});
-        _refreshTimerBanner();
-      }
-    });
-    setState(() {
-      _activeRecordIds[todo.id!] = record.id!;
-      _timeRecords
-          .putIfAbsent(todo.id!, () => [])
-          .add(record);
-    });
-    _refreshTimerBanner();
-    _refreshNudge(); // 타이머 시작 → nudge 끔
+      _timerStartTimes[todoId] = DateTime.now();
+      // 30초마다 경과시간 갱신 + 알림 배너 재게시(스와이프 해제 시 자동 복귀)
+      _elapsedTicker ??= Timer.periodic(const Duration(seconds: 30), (_) {
+        if (!mounted) return;
+        if (_activeRecordIds.isNotEmpty) {
+          setState(() {});
+          _refreshTimerBanner();
+        }
+      });
+      setState(() {
+        _activeRecordIds[todoId] = record.id!;
+        _timeRecords.putIfAbsent(todoId, () => []).add(record);
+      });
+      _refreshTimerBanner();
+      _refreshNudge(); // 타이머 시작 → nudge 끔
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('타이머를 시작하지 못했어요');
+    } finally {
+      if (mounted) setState(() => _timerBusy.remove(todoId));
+    }
   }
 
   Future<void> _stopTimer(Todo todo) async {
@@ -384,10 +467,21 @@ class _TodoScreenState extends State<TodoScreen> {
     if (todoId == null) return;
     final recordId = _activeRecordIds[todoId];
     if (recordId == null) return;
+    if (_timerBusy.contains(todoId)) return; // ⏹ 연타 방지 (_startTimer와 같은 이유)
+    setState(() => _timerBusy.add(todoId));
 
     final e = _nowHHMM();
-    await SupabaseService.finishTimeRecord(recordId, e);
+    try {
+      await SupabaseService.finishTimeRecord(recordId, e);
+    } catch (_) {
+      if (mounted) {
+        setState(() => _timerBusy.remove(todoId));
+        _showSnack('타이머를 멈추지 못했어요');
+      }
+      return;
+    }
     if (!mounted) return;
+    _timerBusy.remove(todoId);
     _timerStartTimes.remove(todoId);
     if (_activeRecordIds.length <= 1) {
       _elapsedTicker?.cancel();
@@ -466,10 +560,27 @@ class _TodoScreenState extends State<TodoScreen> {
       (_timeRecords[todoId]?.isNotEmpty ?? false) ||
       _activeRecordIds.containsKey(todoId);
 
+  // 공통 스낵바 — 실패를 조용히 삼키지 않고 사용자에게 알린다.
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   // ─── 밀린 투두 복사 ──────────────────────────────────────────────────────────
   // 선택한 날짜 "이전"의 모든 미완료 할 일을 오늘 목록으로 모아온다.
   // (어제 하루가 아니라 지금까지 쌓인 미완료 전부)
   Future<void> _copyIncompletePast() async {
+    // ⚠️ 연타 방지. 아래 existing(중복 제거용 스냅샷)은 **직전 배치의 결과가
+    // 반영된 뒤에만** 유효하다. 왕복이 끝나기 전에 또 누르면 두 실행이 같은
+    // 스냅샷을 읽어 동일한 항목을 두 번 넣는다.
+    if (_copying) return;
     // 배치 삽입 중(await)에 페이지를 넘기면 _selKey가 바뀐다.
     // 복사 시점의 날짜키를 고정해, 완료 후 리스트도 그 날짜에 넣는다.
     final targetKey = _selKey;
@@ -493,31 +604,24 @@ class _TodoScreenState extends State<TodoScreen> {
     }
     if (!mounted) return;
     if (texts.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('가져올 밀린 할 일이 없어요'),
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      _showSnack('가져올 밀린 할 일이 없어요');
       return;
     }
-    // 한 개씩 await하면 왕복이 2N회 → 배치로 2회. (복사 지연의 주원인)
-    final created = await SupabaseService.createTodosBatch(texts, targetKey);
-    if (!mounted) return;
-    setState(() => _byDate.putIfAbsent(targetKey, () => []).addAll(created));
-    _refreshNudge();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('밀린 할 일 ${created.length}개 가져왔어요'),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    setState(() => _copying = true);
+    try {
+      // 한 개씩 await하면 왕복이 2N회 → 배치로 2회. (복사 지연의 주원인)
+      final created = await SupabaseService.createTodosBatch(texts, targetKey);
+      if (!mounted) return;
+      setState(() => _byDate.putIfAbsent(targetKey, () => []).addAll(created));
+      // 복사 중 날짜가 바뀌었어도 nudge는 "복사한 날짜" 기준으로 판단해야 한다.
+      _refreshNudge(dateKey: targetKey);
+      _showSnack('밀린 할 일 ${created.length}개 가져왔어요');
+    } catch (e) {
+      if (!mounted) return;
+      _showSnack('가져오지 못했어요. 다시 시도해주세요');
+    } finally {
+      if (mounted) setState(() => _copying = false);
+    }
   }
 
   // 시간 기록 목록 바텀시트 (기록 확인 + 개별 삭제)
@@ -785,19 +889,34 @@ class _TodoScreenState extends State<TodoScreen> {
 
   // ─── 재정렬 ──────────────────────────────────────────────────────────────────
   Future<void> _onReorder(int oldIndex, int newIndex) async {
+    if (_reordering) return;
     if (newIndex > oldIndex) newIndex--;
+    // 재정렬 대상 날짜를 고정 — 아래 await 뒤에 _selKey를 다시 읽지 않는다.
+    final targetKey = _selKey;
+    final before = List.of(_selTodos); // 실패 시 되돌릴 원래 순서
     final todos = List.of(_selTodos);
     final item = todos.removeAt(oldIndex);
     todos.insert(newIndex, item);
 
     setState(() {
-      _byDate[_selKey] = todos;
+      _reordering = true;
+      _byDate[targetKey] = todos;
     });
 
-    // 배치 업데이트
-    await Future.wait(todos.asMap().entries.map(
-          (e) => SupabaseService.updateTodoOrderIndex(e.value.id!, e.key),
-        ));
+    try {
+      // 배치 업데이트
+      await Future.wait(todos.asMap().entries.map(
+            (e) => SupabaseService.updateTodoOrderIndex(e.value.id!, e.key),
+          ));
+    } catch (e) {
+      if (!mounted) return;
+      // 서버 반영에 실패했으면 화면도 원래 순서로 되돌린다 — 안 그러면
+      // 다음 실행 때 순서가 달라져 "왜 바뀌었지"가 된다.
+      setState(() => _byDate[targetKey] = before);
+      _showSnack('순서를 저장하지 못했어요');
+    } finally {
+      if (mounted) setState(() => _reordering = false);
+    }
   }
 
   // ─── 빌드 ──────────────────────────────────────────────────────────────────
@@ -836,25 +955,28 @@ class _TodoScreenState extends State<TodoScreen> {
     final landscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
     final btn = landscape ? 34.0 : 44.0;
+    // 복사 진행 중에는 날짜를 못 바꾸게 잠근다(비활성 색으로도 보이게).
     Widget chevron(IconData icon, VoidCallback onTap) => SizedBox(
           width: btn,
           height: btn,
           child: IconButton(
             padding: EdgeInsets.zero,
             icon: Icon(icon, size: 22),
-            color: Theme.of(context).colorScheme.onSurface.withOpacity(0.4),
-            onPressed: onTap,
+            color: Theme.of(context)
+                .colorScheme
+                .onSurface
+                .withOpacity(_dateLocked ? 0.15 : 0.4),
+            onPressed: _dateLocked ? null : onTap,
           ),
         );
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
       child: Row(
         children: [
-          chevron(
-              Icons.chevron_left,
-              () => _pageController.previousPage(
-                  duration: const Duration(milliseconds: 280),
-                  curve: Curves.easeInOut)),
+          // previousPage/nextPage를 직접 부르면 _selectedDate가 280ms 뒤에야
+          // 갱신돼, 그 사이 누른 복사/추가가 이전 날짜로 들어갔다. _jumpWeek은
+          // 날짜를 먼저 갱신하고 애니메이션을 건다.
+          chevron(Icons.chevron_left, () => _jumpWeek(-1)),
           Expanded(
             child: Center(
               child: Text(
@@ -867,11 +989,7 @@ class _TodoScreenState extends State<TodoScreen> {
               ),
             ),
           ),
-          chevron(
-              Icons.chevron_right,
-              () => _pageController.nextPage(
-                  duration: const Duration(milliseconds: 280),
-                  curve: Curves.easeInOut)),
+          chevron(Icons.chevron_right, () => _jumpWeek(1)),
         ],
       ),
     );
@@ -886,6 +1004,11 @@ class _TodoScreenState extends State<TodoScreen> {
       child: PageView.builder(
         controller: _pageController,
         onPageChanged: _onPageChanged,
+        // 복사 진행 중에는 스와이프로도 날짜가 안 바뀌게 — 화살표/날짜 탭만
+        // 막으면 스와이프로 빠져나갈 수 있다.
+        physics: _dateLocked
+            ? const NeverScrollableScrollPhysics()
+            : const AlwaysScrollableScrollPhysics(),
         itemBuilder: (_, page) => _buildWeekRow(_weekStart(page)),
       ),
     );
@@ -1026,15 +1149,26 @@ class _TodoScreenState extends State<TodoScreen> {
             title: '밀린 할 일 가져오기',
             description: '지금까지 못 끝낸 할 일을\n오늘 목록으로 한 번에 모아와요.',
             targetShapeBorder: const CircleBorder(),
+            // 가져오는 동안 아이콘 자리에 스피너를 띄우고 버튼을 잠근다 —
+            // 진행 중인 게 안 보이면 사용자가 다시 눌러 중복 복사가 됐다.
             child: IconButton(
-              icon: Icon(Icons.copy_outlined,
-                  size: 18,
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onSurface
-                      .withOpacity(0.38)),
-              onPressed: _copyIncompletePast,
-              tooltip: '밀린 할 일 가져오기',
+              icon: _copying
+                  ? SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    )
+                  : Icon(Icons.copy_outlined,
+                      size: 18,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.38)),
+              onPressed: _copying ? null : _copyIncompletePast,
+              tooltip: _copying ? '가져오는 중...' : '밀린 할 일 가져오기',
             ),
           ),
           buildCoachMark(
@@ -1246,20 +1380,34 @@ class _TodoScreenState extends State<TodoScreen> {
   // ▶/⏹ 타이머 버튼. 첫 항목(index 0)에는 코치마크를 단다.
   Widget _buildTimerButton(Todo todo, int index, Color plannerColor) {
     final running = todo.id != null && _isRunning(todo.id!);
+    final busy = todo.id != null && _timerBusy.contains(todo.id!);
     final button = GestureDetector(
-      onTap: () => running ? _stopTimer(todo) : _startTimer(todo),
+      // busy면 탭을 아예 무시 — 왕복 중 재탭이 고아 TimeRecord를 만들었다.
+      onTap: busy ? null : () => running ? _stopTimer(todo) : _startTimer(todo),
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
         width: 36,
         height: 36,
         child: Center(
-          child: Icon(
-            running ? Icons.stop_circle_outlined : Icons.play_circle_outline,
-            size: 18,
-            color: running
-                ? plannerColor
-                : Theme.of(context).colorScheme.onSurface.withOpacity(0.22),
-          ),
+          child: busy
+              ? SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: plannerColor),
+                )
+              : Icon(
+                  running
+                      ? Icons.stop_circle_outlined
+                      : Icons.play_circle_outline,
+                  size: 18,
+                  color: running
+                      ? plannerColor
+                      : Theme.of(context)
+                          .colorScheme
+                          .onSurface
+                          .withOpacity(0.22),
+                ),
         ),
       ),
     );
@@ -1349,18 +1497,30 @@ class _TodoScreenState extends State<TodoScreen> {
               ),
             ),
             const SizedBox(width: 8),
+            // 추가 중에는 버튼을 잠그고 스피너로 바꾼다.
             GestureDetector(
-              onTap: _addTodo,
+              onTap: _adding ? null : _addTodo,
               child: Container(
                 width: 34,
                 height: 34,
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withOpacity(_adding ? 0.5 : 1.0),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.arrow_upward_rounded,
-                    size: 17,
-                    color: Theme.of(context).colorScheme.onPrimary),
+                child: _adding
+                    ? Padding(
+                        padding: const EdgeInsets.all(9),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Theme.of(context).colorScheme.onPrimary,
+                        ),
+                      )
+                    : Icon(Icons.arrow_upward_rounded,
+                        size: 17,
+                        color: Theme.of(context).colorScheme.onPrimary),
               ),
             ),
             ],
