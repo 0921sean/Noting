@@ -7,7 +7,9 @@ cd "$(dirname "$0")"
 
 # 버전 읽기
 VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //' | cut -d'+' -f1)
-APK_NAME="noting-v${VERSION}.apk"
+# 배포 파일명 규칙: Noting-v{major.minor.patch}.apk
+# pubspec의 version을 그대로 따르니, 릴리스마다 pubspec을 먼저 bump해야 한다.
+APK_NAME="Noting-v${VERSION}.apk"
 APK_BUILD="build/app/outputs/flutter-apk/app-release.apk"
 APK_SRC="build/app/outputs/flutter-apk/${APK_NAME}"
 
@@ -33,10 +35,12 @@ fi
 
 echo "🎉 완료!"
 
-# GitHub 자동 push
-echo "📦 GitHub push 중..."
-git add -A
-git diff --cached --quiet && echo "변경 없음 — push 스킵" || \
-  git commit -m "v${VERSION} - 릴리즈 빌드" && \
-  git push origin main && \
-  echo "✅ GitHub push 완료: noting-v${VERSION}"
+# ⚠️ 자동 git commit/push는 일부러 넣지 않는다.
+# 예전엔 여기서 `git add -A && git commit -m "v${VERSION} - 릴리즈 빌드" && git push origin main`을
+# 돌렸는데, (1) CLAUDE.md 절대 규칙인 "main 직접 커밋·푸시 금지"를 위반하고
+# (2) 커밋 메시지가 컨벤션(`[Type/#번호] 내용`) 밖이며
+# (3) pubspec을 안 올린 채 돌려서 2026-05-21~09월 커밋이 전부 `v1.0.0 -`으로 찍히는
+# 버전 혼선을 만들었다. 변경사항은 브랜치 → PR로 올린다.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "ℹ️  커밋 안 된 변경이 있습니다 — 브랜치 → PR로 올리세요 (main 직접 푸시 금지)."
+fi
