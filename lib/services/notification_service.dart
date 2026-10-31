@@ -116,6 +116,17 @@ class NotificationService {
     return 'organic';
   }
 
+  // 예약된 메모 회상 알림만 전부 취소 (타이머/nudge/플래너 알림은 유지).
+  // 메모 기능을 끈 뒤에도 **이전 버전에서 예약해둔 알림은 폰에 남아 있어서**
+  // 그대로 두면 끈 뒤에도 회상 알림이 계속 뜬다. 그래서 따로 지운다.
+  Future<void> cancelMemoReminders() async {
+    const maxDays = 20;
+    final slots = _dailyOffsets.length;
+    for (int i = 0; i < maxDays * slots; i++) {
+      await _plugin.cancel(i);
+    }
+  }
+
   // 하루 3번(기본 9시/15시/20시) 각각 다른 옛 메모로 알림을 예약한다.
   // 앱이 열릴 때 호출 → 컨텐츠가 항상 신선.
   Future<void> scheduleReminders() async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/analytics_service.dart';
+import '../feature_flags.dart';
 import 'home_screen.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -15,17 +16,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   int _page = 0;
 
   // 컨셉만 짧게 소개하고, 구체적인 버튼/제스처는 홈 화면 코치마크로 안내한다.
+  // 첫 장은 메모(회상) 소개라, 메모를 끈 상태에선 없는 기능을 설명하게 된다 → 제외.
   static const _pages = [
-    _OnboardingPage(
-      emoji: '✦',
-      title: '생각을 바로 기록해요',
-      description: '지금 드는 생각을 적어두면\n나중에 알림으로 다시 만나게 될 거예요.',
-      highlight: null,
-    ),
+    if (kMemoEnabled)
+      _OnboardingPage(
+        emoji: '✦',
+        title: '생각을 바로 기록해요',
+        description: '지금 드는 생각을 적어두면\n나중에 알림으로 다시 만나게 될 거예요.',
+        highlight: null,
+      ),
     _OnboardingPage(
       emoji: '🗓',
       title: '할 일과 플래너로 하루를 관리해요',
-      description: '투두 탭에서 할 일을 추가하고 ▶ 로 시간을 기록해요.\n플래너로 색깔 시간표를 만들어 공유할 수 있어요.',
+      description: '할 일을 추가하고 ▶ 로 시간을 기록해요.\n플래너로 색깔 시간표를 만들어 공유할 수 있어요.',
       highlight: null,
     ),
   ];

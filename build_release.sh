@@ -16,7 +16,12 @@ APK_SRC="build/app/outputs/flutter-apk/${APK_NAME}"
 echo "🔨 빌드 시작 — noting v${VERSION}"
 # 머신마다 Flutter 버전이 달라서 fvm로 고정 — fvm 있으면 그걸 통해 빌드
 FLUTTER=$(command -v fvm >/dev/null 2>&1 && echo "fvm flutter" || echo "flutter")
-$FLUTTER build apk --release
+# arm64 전용으로 빌드 — 기본(3종 포함) 51MB → 19MB.
+# x86_64는 에뮬레이터용이고 armeabi-v7a는 2015년 이전 구형폰용이라,
+# 카톡/드라이브로 직접 건네는 APK엔 둘 다 필요 없다.
+# ⚠️ Play Store용은 AAB로 올릴 것 — 구글이 기기별로 쪼개 보내므로
+#    구형폰 지원을 유지하면서도 설치 용량이 작아진다.
+$FLUTTER build apk --release --target-platform android-arm64
 
 # 빌드된 파일 이름 변경
 cp "${APK_BUILD}" "${APK_SRC}"
