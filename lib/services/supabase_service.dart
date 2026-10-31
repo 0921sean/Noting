@@ -132,6 +132,41 @@ class SupabaseService {
     return inserted.map(Todo.fromMap).toList();
   }
 
+  /// 주어진 투두들 중 **시간 기록이 달린 것**의 id 집합.
+  /// 시간 기록은 자체 날짜가 없고 todo의 date를 따라가므로, 기록이 있는 투두를
+  /// 다른 날짜로 옮기면 그 날 플래너에서 시간 블록이 사라진다. 그래서 옮기기
+  /// 전에 걸러내려고 쓴다.
+  static Future<Set<int>> todoIdsWithTimeRecords(List<int> todoIds) async {
+    if (todoIds.isEmpty) return {};
+    final rows = await _db
+        .from('noting_time_records')
+        .select('todo_id')
+        .inFilter('todo_id', todoIds);
+    return rows.map((r) => r['todo_id'] as int).toSet();
+  }
+
+  /// 여러 투두의 날짜를 한 번에 옮긴다(밀린 할 일 가져오기).
+  /// order_index를 행마다 다르게 주려면 N번 업데이트해야 하는데, 정렬이
+  /// order_index → created_at 순이라 **같은 값을 줘도 created_at이 순서를
+  /// 지켜준다.** 그래서 왕복 1회로 끝낸다.
+  static Future<List<Todo>> moveTodosToDate(
+      List<int> todoIds, String date) async {
+    if (todoIds.isEmpty) return [];
+    final rows = await _db
+        .from('noting_todos')
+        .select('order_index')
+        .eq('date', date)
+        .order('order_index', ascending: false)
+        .limit(1);
+    final next = rows.isEmpty ? 0 : ((rows.first['order_index'] as int) + 1);
+    final updated = await _db
+        .from('noting_todos')
+        .update({'date': date, 'order_index': next})
+        .inFilter('id', todoIds)
+        .select();
+    return updated.map(Todo.fromMap).toList();
+  }
+
   static Future<List<Todo>> readAllTodos() async {
     final rows = await _db
         .from('noting_todos')

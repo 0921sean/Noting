@@ -573,22 +573,26 @@ class _TodoScreenState extends State<TodoScreen> {
     );
   }
 
-  // ─── 밀린 투두 복사 ──────────────────────────────────────────────────────────
-  // 선택한 날짜 "이전"의 모든 미완료 할 일을 오늘 목록으로 모아온다.
-  // (어제 하루가 아니라 지금까지 쌓인 미완료 전부)
-  Future<void> _copyIncompletePast() async {
+  // ─── 밀린 투두 가져오기 ──────────────────────────────────────────────────────
+  // 선택한 날짜 "이전"의 모든 미완료 할 일을 오늘로 가져온다. 원본은 그 날에서
+  // 빠진다(복사가 아니라 이동) — 지난 날에 미완료가 계속 쌓여 보이지 않게.
+  //
+  // 단, **시간 기록이 달린 할 일은 옮기지 않고 복사한다.** 시간 기록은 자체
+  // 날짜가 없고 todo의 date를 따라가서, 옮기면 그 날 플래너에서 시간 블록이
+  // 사라지고 오늘 하지도 않은 블록이 생긴다. 실제로 일한 기록은 그 날에 남긴다.
+  Future<void> _pullOverdue() async {
     // ⚠️ 연타 방지. 아래 existing(중복 제거용 스냅샷)은 **직전 배치의 결과가
     // 반영된 뒤에만** 유효하다. 왕복이 끝나기 전에 또 누르면 두 실행이 같은
     // 스냅샷을 읽어 동일한 항목을 두 번 넣는다.
     if (_copying) return;
-    // 배치 삽입 중(await)에 페이지를 넘기면 _selKey가 바뀐다.
-    // 복사 시점의 날짜키를 고정해, 완료 후 리스트도 그 날짜에 넣는다.
+    // 처리 중(await)에 페이지를 넘기면 _selKey가 바뀐다.
+    // 시작 시점의 날짜키를 고정해, 완료 후 리스트도 그 날짜에 넣는다.
     final targetKey = _selKey;
     // 같은 내용이 여러 날에 밀려 중복돼 있을 수 있으니 텍스트로 중복 제거하고,
     // 이미 오늘 목록에 있는 내용은 건너뛴다(반복 클릭 시 중복 방지 포함).
     final existing = (_byDate[targetKey] ?? []).map((t) => t.text).toSet();
     final seen = <String>{};
-    final texts = <String>[];
+    final overdue = <Todo>[];
     // 날짜키(YYYY-MM-DD)는 사전순 = 시간순 → 오래된 날부터 모은다.
     final pastKeys = _byDate.keys
         .where((k) => k.compareTo(targetKey) < 0)
@@ -596,26 +600,47 @@ class _TodoScreenState extends State<TodoScreen> {
       ..sort();
     for (final k in pastKeys) {
       for (final t in (_byDate[k] ?? [])) {
-        if (t.done) continue;
+        if (t.done || t.id == null) continue;
         if (existing.contains(t.text)) continue;
         if (!seen.add(t.text)) continue;
-        texts.add(t.text);
+        overdue.add(t);
       }
     }
     if (!mounted) return;
-    if (texts.isEmpty) {
+    if (overdue.isEmpty) {
       _showSnack('가져올 밀린 할 일이 없어요');
       return;
     }
     setState(() => _copying = true);
     try {
-      // 한 개씩 await하면 왕복이 2N회 → 배치로 2회. (복사 지연의 주원인)
-      final created = await SupabaseService.createTodosBatch(texts, targetKey);
+      // 시간 기록이 있는 것 = 그 날 실제로 일한 것 → 원본을 그 날에 남긴다.
+      final withRecords = await SupabaseService.todoIdsWithTimeRecords(
+          overdue.map((t) => t.id!).toList());
+      final toMove = overdue.where((t) => !withRecords.contains(t.id)).toList();
+      final toCopy = overdue.where((t) => withRecords.contains(t.id)).toList();
+
+      final moved = await SupabaseService.moveTodosToDate(
+          toMove.map((t) => t.id!).toList(), targetKey);
+      final created = await SupabaseService.createTodosBatch(
+          toCopy.map((t) => t.text).toList(), targetKey);
       if (!mounted) return;
-      setState(() => _byDate.putIfAbsent(targetKey, () => []).addAll(created));
-      // 복사 중 날짜가 바뀌었어도 nudge는 "복사한 날짜" 기준으로 판단해야 한다.
+
+      setState(() {
+        // 옮긴 것은 원래 날짜 목록에서 제거
+        final movedIds = moved.map((t) => t.id).toSet();
+        for (final k in pastKeys) {
+          _byDate[k]?.removeWhere((t) => movedIds.contains(t.id));
+        }
+        _byDate.putIfAbsent(targetKey, () => [])
+          ..addAll(moved)
+          ..addAll(created);
+      });
+      // 날짜가 바뀌었어도 nudge는 "가져온 날짜" 기준으로 판단해야 한다.
       _refreshNudge(dateKey: targetKey);
-      _showSnack('밀린 할 일 ${created.length}개 가져왔어요');
+      final n = moved.length + created.length;
+      _showSnack(created.isEmpty
+          ? '밀린 할 일 $n개 가져왔어요'
+          : '밀린 할 일 $n개 가져왔어요 (시간 기록 있는 ${created.length}개는 원본 유지)');
     } catch (e) {
       if (!mounted) return;
       _showSnack('가져오지 못했어요. 다시 시도해주세요');
@@ -1147,7 +1172,7 @@ class _TodoScreenState extends State<TodoScreen> {
             context: context,
             key: _copyKey,
             title: '밀린 할 일 가져오기',
-            description: '지금까지 못 끝낸 할 일을\n오늘 목록으로 한 번에 모아와요.',
+            description: '지금까지 못 끝낸 할 일을\n오늘로 한 번에 옮겨와요.',
             targetShapeBorder: const CircleBorder(),
             // 가져오는 동안 아이콘 자리에 스피너를 띄우고 버튼을 잠근다 —
             // 진행 중인 게 안 보이면 사용자가 다시 눌러 중복 복사가 됐다.
@@ -1167,7 +1192,7 @@ class _TodoScreenState extends State<TodoScreen> {
                           .colorScheme
                           .onSurface
                           .withOpacity(0.38)),
-              onPressed: _copying ? null : _copyIncompletePast,
+              onPressed: _copying ? null : _pullOverdue,
               tooltip: _copying ? '가져오는 중...' : '밀린 할 일 가져오기',
             ),
           ),
