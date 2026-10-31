@@ -21,6 +21,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _hour = 9;
   int _minute = 0;
   bool _loading = true;
+  bool _signingOut = false; // 로그아웃 진행 중 — 연타로 겹쳐 실행되는 것 방지
 
   String get _userEmail =>
       Supabase.instance.client.auth.currentUser?.email ?? '';
@@ -71,6 +72,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // ─── 로그아웃 ─────────────────────────────────────────────────────────────
   Future<void> _signOut() async {
+    // 확인 뒤 3연속 await가 이어져, 그 사이 다시 누르면 로그아웃이 겹쳐 실행된다.
+    if (_signingOut) return;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -99,14 +102,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (confirmed != true) return;
-    await Supabase.instance.client.auth.signOut();
-    await AnalyticsService.reset();
-    await CategoryService.resetMigrationFlag();
     if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const AuthScreen()),
-      (_) => false,
-    );
+    setState(() => _signingOut = true);
+    try {
+      await Supabase.instance.client.auth.signOut();
+      await AnalyticsService.reset();
+      await CategoryService.resetMigrationFlag();
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthScreen()),
+        (_) => false,
+      );
+    } catch (e) {
+      // 실패를 삼키면 사용자는 로그아웃된 줄 알고 앱을 닫는다.
+      if (!mounted) return;
+      setState(() => _signingOut = false);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: const Text('로그아웃하지 못했어요. 다시 시도해주세요'),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
+    // 성공 경로는 화면이 통째로 교체되므로 플래그를 되돌릴 필요가 없다.
   }
 
   // ─── 계정 삭제 ────────────────────────────────────────────────────────────
@@ -325,8 +342,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           color: Theme.of(context).dividerColor),
                       _WarmTile(
                         icon: Icons.logout_outlined,
-                        title: '로그아웃',
-                        onTap: _signOut,
+                        title: _signingOut ? '로그아웃 중...' : '로그아웃',
+                        onTap: _signingOut ? null : _signOut,
                         titleColor: Theme.of(context).colorScheme.error,
                         showChevron: false,
                       ),
