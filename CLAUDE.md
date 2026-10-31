@@ -67,10 +67,12 @@ Anthropic 키 보호 목적으로만 Edge Function 거침.
 
 ### 배포
 
-- **릴리스 빌드**: `./build_release.sh` → APK 빌드 + Google Drive 자동 업로드 + GitHub push
+- **릴리스 빌드**: `./build_release.sh` → APK 빌드 + Google Drive 업로드. **git 자동 push는 없다**(main 직접 푸시 금지 규칙 위반이라 제거함 — 변경은 브랜치→PR로).
   - rclone 설정 필요 (gdrive: 리모트), 없어도 빌드는 됨
-  - APK 위치: `gdrive:Apps/Noting/releases/noting-v1.0.0.apk` + 로컬 `build/app/outputs/flutter-apk/`
-- **VERSION**: `pubspec.yaml`의 `version: 1.0.0+1` (실제 릴리스는 신중히 bump)
+  - APK 위치: `gdrive:Apps/Noting/releases/Noting-v{버전}.apk` + 로컬 `build/app/outputs/flutter-apk/`
+- **VERSION**: `pubspec.yaml`의 `version` (현재 `5.2.0+14`). **릴리스 전에 먼저 bump** — 파일명이 이 값을 따른다.
+  semver: 대개편(로그인 필수화·데이터 마이그레이션·앱 진입구조 변경 등)=MAJOR / 새 기능=MINOR / 버그=PATCH.
+  빌드번호(`+N`)는 Play Store가 단조 증가를 요구하므로 매 릴리스 +1.
 
 ## 환경 파일 (gitignore)
 
