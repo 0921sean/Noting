@@ -7,9 +7,12 @@
 
 ## 한 줄 정체
 
-"Remind-first" 개인 메모/투두/플래너 앱. 적어두면 잊을 때쯤 알림으로 다시
-만나는 컨셉. **개발자: 0921sean@gmail.com** (Seungbeom). 친구 1명 사용 중,
-Play Store 등록 준비 단계.
+개인 **투두/플래너** 앱 — 할 일을 적고 ▶로 시간을 기록해 색깔 시간표로 공유.
+**개발자: 0921sean@gmail.com** (Seungbeom). 친구 1명 사용 중, Play Store 등록 준비 단계.
+
+> 원래는 "Remind-first" 메모 앱(적어두면 잊을 때쯤 알림으로 재회)이었으나,
+> **2026-11-01부터 투두 전용**으로 간다 (`kMemoEnabled=false`). 메모는 끈 것일 뿐
+> 지우지 않았다 — 아래 불변 제약 참조.
 
 ## 기술 스택 한눈에
 
@@ -40,7 +43,8 @@ Anthropic 키 보호 목적으로만 Edge Function 거침.
 ## ⛔ 불변 제약 (UI/셸 작업 시 반드시 지킴)
 
 - **플래너 출력은 100% 불변.** `planner_screen.dart`·`utils/planner_colors.dart`·`Todo`/`TimeRecord` 필드는 UI/테마 리팩터로도 건드리지 않는다(공유 플래너는 앱 테마를 안 읽고 색을 하드코딩 — 테마 바꿔도 출력 그대로). 딸려 바뀔 위험 있으면 먼저 경고.
-- **메모 데이터·랜덤 회상 로직은 삭제 금지(강등만).** 메모+회상(랜덤 알림→메모 재방문)이 차별점 — 지표로 검증하기 전엔 유지. 현재 회상 전용 계측 이벤트는 없음(`app_open{source:memo_reminder}`로만 간접 관측).
+- **메모 데이터·랜덤 회상 로직은 삭제 금지(강등만).** → **2026-11-01 강등 완료**: `lib/feature_flags.dart`의 `kMemoEnabled = false`로 UI만 숨겼다. **코드와 Supabase 데이터(친구 메모 포함)는 그대로 둔다** — 지우지 말 것. 플래그를 `true`로 되돌리면 즉시 복귀한다.
+  - ⚠️ 되살릴 땐 `home_screen` 카테고리 핸들러·`note_detail`의 비동기 경합 결함이 **같이 살아난다** (특히 `_reorderCategory`는 카테고리 소실 가능). PROGRESS.md "메모를 다시 켤 경우" 절과 [Epic #23](https://github.com/0921sean/Noting/issues/23) 종료 코멘트 참조.
 
 ## Git · 개발 컨벤션 (중요)
 
