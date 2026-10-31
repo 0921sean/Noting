@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:showcaseview/showcaseview.dart';
+import '../feature_flags.dart';
 import '../utils/coach_mark.dart';
 import '../utils/tour.dart';
 import '../services/analytics_service.dart';
@@ -65,7 +66,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     // 투두가 기본(첫) 화면. 메모 리마인더로 열렸을 때만 메모 탭으로 진입.
-    _mode = widget.initialNoteId != null ? _AppMode.notes : _AppMode.todos;
+    // 메모 OFF면 과거에 예약된 회상 알림으로 열려도 투두에 머문다.
+    _mode = (kMemoEnabled && widget.initialNoteId != null)
+        ? _AppMode.notes
+        : _AppMode.todos;
     WidgetsBinding.instance.addObserver(this);
     _loadCoachFlag();
     _loadAll().then((_) {
@@ -205,7 +209,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _scheduleIfNeeded() async {
-    if (!kIsWeb && _notes.isNotEmpty) {
+    if (kIsWeb) return;
+    if (!kMemoEnabled) {
+      // 메모를 끈 뒤에도 이전 버전이 예약해둔 회상 알림이 폰에 남아 계속 뜬다.
+      await NotificationService.instance.cancelMemoReminders();
+      return;
+    }
+    if (_notes.isNotEmpty) {
       await NotificationService.instance.scheduleReminders();
     }
   }
@@ -427,7 +437,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ],
           ),
         ),
-        bottomNavigationBar: _buildBottomNav(),
+        // 메모 OFF면 탭이 하나뿐이라 네비게이션 바가 의미 없다 → 숨김.
+        bottomNavigationBar: kMemoEnabled ? _buildBottomNav() : null,
       ),
     );
   }

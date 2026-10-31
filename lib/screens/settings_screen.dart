@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/analytics_service.dart';
 import '../services/category_service.dart';
 import '../services/notification_service.dart';
+import '../feature_flags.dart';
 import '../utils/tour.dart';
 import 'auth_screen.dart';
 
@@ -351,17 +352,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 8),
                     _WarmCard(
                       children: [
-                        _WarmTile(
-                          icon: Icons.access_time_outlined,
-                          title: '${_z(_hour)}:${_z(_minute)}에 예전 메모를 보내줘요',
-                          subtitle: '탭해서 시간 변경',
-                          onTap: _pickTime,
-                          showChevron: false,
-                        ),
-                        Divider(
-                            height: 1,
-                            thickness: 0.5,
-                            color: Theme.of(context).dividerColor),
+                        // 이 시각 설정은 메모 회상 알림 전용이라 메모 OFF면 숨긴다.
+                        if (kMemoEnabled) ...[
+                          _WarmTile(
+                            icon: Icons.access_time_outlined,
+                            title: '${_z(_hour)}:${_z(_minute)}에 예전 메모를 보내줘요',
+                            subtitle: '탭해서 시간 변경',
+                            onTap: _pickTime,
+                            showChevron: false,
+                          ),
+                          Divider(
+                              height: 1,
+                              thickness: 0.5,
+                              color: Theme.of(context).dividerColor),
+                        ],
                         _WarmTile(
                           icon: Icons.notifications_outlined,
                           title: '알림 권한 확인',
@@ -392,16 +396,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 8),
                   _WarmCard(
                     children: [
-                      _WarmTile(
-                        icon: Icons.sticky_note_2_outlined,
-                        title: '메모 사용법',
-                        subtitle: '실제 화면 위에 기능 위치 표시',
-                        onTap: () => _startTour(context, 'memo'),
-                      ),
-                      Divider(
-                          height: 1,
-                          thickness: 0.5,
-                          color: Theme.of(context).dividerColor),
+                      if (kMemoEnabled) ...[
+                        _WarmTile(
+                          icon: Icons.sticky_note_2_outlined,
+                          title: '메모 사용법',
+                          subtitle: '실제 화면 위에 기능 위치 표시',
+                          onTap: () => _startTour(context, 'memo'),
+                        ),
+                        Divider(
+                            height: 1,
+                            thickness: 0.5,
+                            color: Theme.of(context).dividerColor),
+                      ],
                       _WarmTile(
                         icon: Icons.check_box_outlined,
                         title: '투두 사용법',
