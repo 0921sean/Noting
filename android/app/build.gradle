@@ -22,6 +22,16 @@ if (flutterVersionName == null) {
     flutterVersionName = '1.0'
 }
 
+// 릴리스 서명 자격증명. key.properties·*.jks는 gitignore 대상이라 레포에 없다
+// (새 머신에선 config.dart처럼 직접 옮겨와야 함).
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file('key.properties')
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.withReader('UTF-8') { reader ->
+        keystoreProperties.load(reader)
+    }
+}
+
 android {
     namespace "com.csb.noting"
     compileSdk flutter.compileSdkVersion
@@ -51,15 +61,27 @@ android {
         versionName flutterVersionName
     }
 
+    signingConfigs {
+        release {
+            // key.properties가 없으면 null이 들어가 릴리스 빌드가 실패한다 — 의도된 동작.
+            // 조용히 디버그 키로 서명되는 쪽이 훨씬 위험하기 때문(제3자 배포 빌드 위조 가능,
+            // 머신마다 키가 달라져 기존 사용자가 업데이트 설치 불가).
+            keyAlias keystoreProperties['keyAlias']
+            keyPassword keystoreProperties['keyPassword']
+            storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+            storePassword keystoreProperties['storePassword']
+        }
+    }
+
     buildTypes {
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
         }
     }
 
     applicationVariants.all { variant ->
         variant.outputs.all {
-            outputFileName = "noting-v${variant.versionName}.apk"
+            outputFileName = "Noting-v${variant.versionName}.apk"
         }
     }
 }

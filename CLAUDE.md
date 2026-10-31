@@ -77,6 +77,12 @@ Anthropic 키 보호 목적으로만 Edge Function 거침.
 - `lib/config.dart` — Supabase URL/anon key + **PostHog API key** 들어있음.
   새 머신엔 USB/AirDrop 등으로 직접 옮겨야 함.
 - `assets/fonts/` — Samanco 폰트 바이너리. gitignore.
+- `android/app/upload-keystore.jks` + `android/key.properties` — **릴리스 서명 키와 비밀번호.**
+  ⚠️ **분실하면 같은 앱으로 업데이트를 영구히 못 올린다** — 비밀번호 관리자 + 별도 백업 필수.
+  이 둘이 없으면 릴리스 빌드가 *실패*한다(의도된 동작 — 예전엔 조용히 디버그 키로
+  서명돼서, 머신 바꿀 때마다 기존 사용자가 업데이트를 설치할 수 없었다).
+  현재 서명 지문: `282d14b7c684f23deb8cfe025af4ad80ad1ac385e0c9e693b0a152e71a81de22`
+  (`apksigner verify --print-certs <apk>`로 확인. `CN=Android Debug`가 나오면 잘못된 빌드)
 
 ## 데이터 모델 (Supabase, 모두 RLS `auth.uid() = user_id`)
 
