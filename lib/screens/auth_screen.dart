@@ -134,13 +134,17 @@ class _AuthScreenState extends State<AuthScreen> {
         redirectTo: _redirectUrl,
       );
       if (!mounted) return;
+      // Supabase는 **가입 안 된 주소에도 성공을 돌려준다** — 누가 가입했는지
+      // 캐내는 걸 막는 설계. 그래서 "보냈어요"라고 단정하면 오타를 쳐도
+      // 성공처럼 보여 사용자가 메일함만 하염없이 기다리게 된다.
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('$email 로 비밀번호 재설정 메일을 보냈어요'),
+          content: Text('가입된 이메일이라면 $email 로 재설정 메일이 갔어요.\n'
+              '안 오면 스팸함과 주소를 확인해줘요'),
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12)),
-          duration: const Duration(seconds: 4),
+          duration: const Duration(seconds: 5),
         ),
       );
     } catch (_) {
