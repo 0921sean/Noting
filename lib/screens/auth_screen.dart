@@ -47,11 +47,28 @@ class _AuthScreenState extends State<AuthScreen> {
     super.dispose();
   }
 
+  // 서버에 보내기 전에 거르는 최소한의 형식 검사.
+  // 완벽한 RFC 검증은 불가능하고 의미도 없다 — 오타("gmail,com", "@" 빠짐)를
+  // 네트워크 왕복 없이 바로 잡아주는 게 목적.
+  static final _emailRe = RegExp(r'^[^@\s]+@[^@\s.]+\.[^@\s]+$');
+
+  /// 형식이 잘못됐으면 사용자에게 보여줄 메시지, 괜찮으면 null.
+  static String? _emailError(String email) {
+    if (email.isEmpty) return '이메일을 입력해줘요';
+    if (!_emailRe.hasMatch(email)) return '이메일 형식이 올바르지 않아요 (예: name@example.com)';
+    return null;
+  }
+
   Future<void> _submit() async {
     final email = _emailCtrl.text.trim();
     final pw = _pwCtrl.text;
     if (email.isEmpty || pw.isEmpty) {
       setState(() => _error = '이메일과 비밀번호를 입력해줘요');
+      return;
+    }
+    final emailErr = _emailError(email);
+    if (emailErr != null) {
+      setState(() => _error = emailErr);
       return;
     }
     setState(() { _loading = true; _error = null; });
@@ -102,8 +119,12 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Future<void> _forgotPassword() async {
     final email = _emailCtrl.text.trim();
-    if (email.isEmpty) {
-      setState(() => _error = '이메일을 먼저 입력해줘요');
+    // 비번 찾기는 입력칸이 이메일 하나뿐이라, 뭘 입력해야 하는지 더 분명히 알린다.
+    final emailErr = email.isEmpty
+        ? '비밀번호를 찾을 이메일을 입력해줘요'
+        : _emailError(email);
+    if (emailErr != null) {
+      setState(() => _error = emailErr);
       return;
     }
     setState(() { _loading = true; _error = null; });
