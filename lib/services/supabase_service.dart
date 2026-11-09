@@ -104,32 +104,53 @@ class SupabaseService {
     return Todo.fromMap(row);
   }
 
-  /// 여러 투두를 한 번에 생성 (어제 미완료 복사 등).
+  /// 여러 투두를 한 번에 생성 (밀린 할 일 복사 등).
   /// createTodo를 N번 부르면 왕복이 2N회지만, 이건 order 조회 1 + 삽입 1 = 2회로 끝난다.
-  static Future<List<Todo>> createTodosBatch(
-      List<String> texts, String date) async {
+  ///
+  /// [orderIndexes]를 주면 그 값을 그대로 쓴다 — 옮긴 항목과 섞어서 원래 순서를
+  /// 복원해야 할 때 필요(밀린 할 일 가져오기). 안 주면 해당 날짜 끝에 차례로 붙인다.
+  static Future<List<Todo>> createTodosBatch(List<String> texts, String date,
+      {List<int>? orderIndexes}) async {
     if (texts.isEmpty) return [];
+    var next = 0;
+    if (orderIndexes == null) {
+      final rows = await _db
+          .from('noting_todos')
+          .select('order_index')
+          .eq('date', date)
+          .order('order_index', ascending: false)
+          .limit(1);
+      next = rows.isEmpty ? 0 : ((rows.first['order_index'] as int) + 1);
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final payload = [
+      for (int i = 0; i < texts.length; i++)
+        {
+          'user_id': _uid,
+          'text': texts[i],
+          'date': date,
+          'done': 0,
+          'created_at': now,
+          'order_index': orderIndexes?[i] ?? next++,
+        }
+    ];
+    final inserted = await _db.from('noting_todos').insert(payload).select();
+    // insert().select()의 행 반환 순서는 Postgres가 보장하지 않는다.
+    // 화면에 붙일 때 입력 순서가 어긋나지 않게 order_index로 정렬해 돌려준다.
+    final list = inserted.map(Todo.fromMap).toList()
+      ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+    return list;
+  }
+
+  /// 해당 날짜 목록 맨 끝에 붙일 order_index.
+  static Future<int> nextOrderIndex(String date) async {
     final rows = await _db
         .from('noting_todos')
         .select('order_index')
         .eq('date', date)
         .order('order_index', ascending: false)
         .limit(1);
-    var next = rows.isEmpty ? 0 : ((rows.first['order_index'] as int) + 1);
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final payload = [
-      for (final t in texts)
-        {
-          'user_id': _uid,
-          'text': t,
-          'date': date,
-          'done': 0,
-          'created_at': now,
-          'order_index': next++,
-        }
-    ];
-    final inserted = await _db.from('noting_todos').insert(payload).select();
-    return inserted.map(Todo.fromMap).toList();
+    return rows.isEmpty ? 0 : ((rows.first['order_index'] as int) + 1);
   }
 
   /// 주어진 투두들 중 **시간 기록이 달린 것**의 id 집합.
@@ -145,25 +166,35 @@ class SupabaseService {
     return rows.map((r) => r['todo_id'] as int).toSet();
   }
 
-  /// 여러 투두의 날짜를 한 번에 옮긴다(밀린 할 일 가져오기).
-  /// order_index를 행마다 다르게 주려면 N번 업데이트해야 하는데, 정렬이
-  /// order_index → created_at 순이라 **같은 값을 줘도 created_at이 순서를
-  /// 지켜준다.** 그래서 왕복 1회로 끝낸다.
-  static Future<List<Todo>> moveTodosToDate(
-      List<int> todoIds, String date) async {
+  /// 여러 투두의 날짜를 옮긴다(밀린 할 일 가져오기).
+  /// `todoIds` **순서대로** order_index를 1씩 늘려 부여하고, 그 순서대로 돌려준다.
+  ///
+  /// 예전엔 한 번의 update로 전부 같은 order_index를 주고 "정렬이
+  /// order_index → created_at이니 created_at이 순서를 지켜준다"고 봤는데 **틀렸다.**
+  /// created_at은 *최초 생성* 시각이라, 사용자가 드래그로 바꿔둔 순서를 무시한다
+  /// (B를 A 위로 올려놨어도 A가 먼저 만들어졌으면 A가 위로 올라감).
+  /// 그래서 행마다 다른 값을 줘야 하고, 이는 N번 업데이트가 불가피하다
+  /// (`id`가 `generated always as identity`라 upsert로 다중행 update가 안 됨).
+  /// 대신 순차 await가 아니라 병렬로 날려 지연을 왕복 1회 수준으로 억제한다.
+  static Future<List<Todo>> moveTodosToDate(List<int> todoIds, String date,
+      {List<int>? orderIndexes}) async {
     if (todoIds.isEmpty) return [];
-    final rows = await _db
-        .from('noting_todos')
-        .select('order_index')
-        .eq('date', date)
-        .order('order_index', ascending: false)
-        .limit(1);
-    final next = rows.isEmpty ? 0 : ((rows.first['order_index'] as int) + 1);
-    final updated = await _db
-        .from('noting_todos')
-        .update({'date': date, 'order_index': next})
-        .inFilter('id', todoIds)
-        .select();
+    var base = 0;
+    if (orderIndexes == null) base = await nextOrderIndex(date);
+    final updated = await Future.wait([
+      for (int i = 0; i < todoIds.length; i++)
+        _db
+            .from('noting_todos')
+            .update({
+              'date': date,
+              'order_index': orderIndexes?[i] ?? (base + i),
+            })
+            .eq('id', todoIds[i])
+            .select()
+            .single(),
+    ]);
+    // Future.wait는 입력 순서대로 결과를 돌려주므로 todoIds 순서가 그대로 유지된다.
+    // (update().select()의 행 반환 순서는 Postgres가 보장하지 않아 믿으면 안 된다)
     return updated.map(Todo.fromMap).toList();
   }
 
