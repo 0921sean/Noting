@@ -420,6 +420,112 @@ class _TodoScreenState extends State<TodoScreen> {
   }
 
   // ─── 타이머 (TimeRecord 기반) ─────────────────────────────────────────────
+  // ─── 자정을 넘긴 시간 기록 ──────────────────────────────────────────────────
+  // 시간 기록엔 날짜가 없고 'HH:MM'만 있다. 그래서 23:00~01:30처럼 끝이 시작보다
+  // 이르면 "자정을 넘겼다"는 뜻인데, 그대로 두면 플래너가 e > s가 아니라서
+  // 그 기록을 통째로 빼버린다(화면 뱃지엔 보이는데 플래너엔 안 그려짐).
+  // → 자정에서 둘로 쪼개 전날/다음날에 각각 남긴다.
+  //
+  // 끝을 24:00이 아니라 23:59로 두는 이유: TimeOfDay는 0~23시만 허용해서
+  // '24:00'으로 저장하면 그 기록을 **수정하려 할 때 터진다**.
+  static const _kDayEnd = '23:59';
+
+  static int _toMinutes(String hhmm) {
+    final p = hhmm.split(':');
+    return (int.tryParse(p[0]) ?? 0) * 60 + (int.tryParse(p.length > 1 ? p[1] : '0') ?? 0);
+  }
+
+  static String _nextDateKey(String dateKey) {
+    final p = dateKey.split('-').map(int.parse).toList();
+    return _key(DateTime(p[0], p[1], p[2]).add(const Duration(days: 1)));
+  }
+
+  /// 같은 날 기준으로 끝이 시작보다 이르면 자정을 넘긴 것.
+  /// 끝이 '00:00'이면 "자정에 끝냈다"는 뜻이라 다음날 기록을 만들 필요가 없다
+  /// (그 날 23:59까지로 닫으면 충분) — 이 경우는 분할 대상이 아니다.
+  static bool _crossesMidnight(String start, String end) =>
+      end != '00:00' && _toMinutes(end) < _toMinutes(start);
+
+  /// 다음날 같은 이름의 할 일을 찾고, 없으면 만든다. (자정 넘긴 기록을 붙일 대상)
+  Future<Todo?> _todoOnNextDay(Todo todo, String fromDateKey) async {
+    final nextKey = _nextDateKey(fromDateKey);
+    for (final t in (_byDate[nextKey] ?? [])) {
+      if (t.text == todo.text && !t.done) return t;
+    }
+    final created = await SupabaseService.createTodo(todo.text, nextKey);
+    if (!mounted) return created;
+    setState(() => _byDate.putIfAbsent(nextKey, () => []).add(created));
+    return created;
+  }
+
+  /// 자정을 넘긴 기록을 전날(…~23:59) / 다음날(00:00~…) 둘로 나눈다.
+  Future<void> _splitAtMidnight({
+    required Todo todo,
+    required int recordId,
+    required String endHHMM,
+  }) async {
+    // 1) 그 날 기록은 자정 직전까지로 닫는다
+    await SupabaseService.finishTimeRecord(recordId, _kDayEnd);
+    if (!mounted) return;
+    setState(() {
+      final list = _timeRecords[todo.id!];
+      final i = list?.indexWhere((r) => r.id == recordId) ?? -1;
+      if (i != -1) list![i] = list[i].copyWith(endTime: _kDayEnd);
+    });
+    // 2) 다음날 같은 할 일에 00:00~끝 기록을 붙인다
+    final next = await _todoOnNextDay(todo, todo.date);
+    if (next?.id == null) return;
+    final rec = await SupabaseService.createTimeRecord(next!.id!, '00:00');
+    await SupabaseService.finishTimeRecord(rec.id!, endHHMM);
+    if (!mounted) return;
+    // 다음날 기록은 그 날짜 캐시에 넣는다(지금 화면이 그 날이면 바로 보이게)
+    final nextKey = _nextDateKey(todo.date);
+    final done = rec.copyWith(endTime: endHHMM);
+    _recordsByDate[nextKey] = {
+      ...?_recordsByDate[nextKey],
+      next.id!: [...?_recordsByDate[nextKey]?[next.id!], done],
+    };
+    if (_selKey == nextKey) {
+      setState(() => _timeRecords = _recordsByDate[nextKey]!);
+    }
+  }
+
+  /// 끝이 시작보다 이른데 자정을 넘긴 건지 단순 오타인지는 앱이 알 수 없다.
+  /// (오후/오전을 잘못 고른 경우가 흔하다) → 사용자에게 물어본다.
+  Future<bool> _askCrossedMidnight(String start, String end) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: Theme.of(context).colorScheme.surface,
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Text('자정을 넘겼나요?',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            content: Text(
+              '종료($end)가 시작($start)보다 이르네요.\n'
+              '다음날 $end 에 끝낸 거라면 자정을 기준으로 나눠서 기록할게요.',
+              style: const TextStyle(fontSize: 14, height: 1.55),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: Text('시간 다시 고르기',
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withOpacity(0.5))),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('다음날로 기록'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   static String _nowHHMM() {
     final t = TimeOfDay.now();
     return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
@@ -471,8 +577,20 @@ class _TodoScreenState extends State<TodoScreen> {
     setState(() => _timerBusy.add(todoId));
 
     final e = _nowHHMM();
+    // 타이머는 실제로 흐른 시간이라 묻지 않고 바로 나눈다 — 23:00에 시작해
+    // 01:30에 멈췄으면 자정을 넘긴 게 확실하다.
+    final started = _timeRecords[todoId]
+        ?.firstWhere((r) => r.id == recordId,
+            orElse: () => TimeRecord(todoId: todoId, startTime: ''))
+        .startTime;
+    final crossed =
+        started != null && started.isNotEmpty && _crossesMidnight(started, e);
     try {
-      await SupabaseService.finishTimeRecord(recordId, e);
+      if (crossed) {
+        await _splitAtMidnight(todo: todo, recordId: recordId, endHHMM: e);
+      } else {
+        await SupabaseService.finishTimeRecord(recordId, e);
+      }
     } catch (_) {
       if (mounted) {
         setState(() => _timerBusy.remove(todoId));
@@ -489,6 +607,9 @@ class _TodoScreenState extends State<TodoScreen> {
     }
     setState(() {
       _activeRecordIds.remove(todoId);
+      // 자정을 넘겨 나눈 경우엔 _splitAtMidnight가 이미 23:59로 닫아놨다.
+      // 여기서 e(예: 01:30)로 덮으면 그 처리가 도로 지워진다.
+      if (crossed) return;
       final list = _timeRecords[todoId];
       if (list != null) {
         final idx = list.indexWhere((r) => r.id == recordId);
@@ -497,6 +618,7 @@ class _TodoScreenState extends State<TodoScreen> {
     });
     _refreshTimerBanner();
     _refreshNudge(); // 타이머 종료 → nudge 다시 켜질 수 있음
+    if (crossed) _showSnack('자정을 넘겨서 $_kDayEnd 까지와 다음날 00:00~$e 로 나눴어요');
   }
 
   // 현재 실행 중인 모든 타이머를 모아 상단 알림 배너를 갱신.
@@ -616,13 +738,28 @@ class _TodoScreenState extends State<TodoScreen> {
       // 시간 기록이 있는 것 = 그 날 실제로 일한 것 → 원본을 그 날에 남긴다.
       final withRecords = await SupabaseService.todoIdsWithTimeRecords(
           overdue.map((t) => t.id!).toList());
-      final toMove = overdue.where((t) => !withRecords.contains(t.id)).toList();
-      final toCopy = overdue.where((t) => withRecords.contains(t.id)).toList();
+      // 옮기는 것과 복사하는 것이 섞여도 **원래 보던 순서**가 유지되도록,
+      // overdue에서의 위치를 그대로 order_index로 쓴다(둘을 따로 매기면
+      // 옮긴 게 전부 앞으로, 복사한 게 전부 뒤로 몰려 순서가 뒤바뀐다).
+      final base = await SupabaseService.nextOrderIndex(targetKey);
+      final moveIds = <int>[], moveOrders = <int>[];
+      final copyTexts = <String>[], copyOrders = <int>[];
+      for (int i = 0; i < overdue.length; i++) {
+        final t = overdue[i];
+        if (withRecords.contains(t.id)) {
+          copyTexts.add(t.text);
+          copyOrders.add(base + i);
+        } else {
+          moveIds.add(t.id!);
+          moveOrders.add(base + i);
+        }
+      }
 
-      final moved = await SupabaseService.moveTodosToDate(
-          toMove.map((t) => t.id!).toList(), targetKey);
+      final moved = await SupabaseService.moveTodosToDate(moveIds, targetKey,
+          orderIndexes: moveOrders);
       final created = await SupabaseService.createTodosBatch(
-          toCopy.map((t) => t.text).toList(), targetKey);
+          copyTexts, targetKey,
+          orderIndexes: copyOrders);
       if (!mounted) return;
 
       setState(() {
@@ -631,9 +768,11 @@ class _TodoScreenState extends State<TodoScreen> {
         for (final k in pastKeys) {
           _byDate[k]?.removeWhere((t) => movedIds.contains(t.id));
         }
-        _byDate.putIfAbsent(targetKey, () => [])
-          ..addAll(moved)
-          ..addAll(created);
+        // 화면 순서도 DB 정렬(order_index)과 똑같이 맞춘다 — 안 그러면
+        // 가져온 직후와 앱 재시작 후의 순서가 달라 보인다.
+        final merged = [...moved, ...created]
+          ..sort((a, b) => a.orderIndex.compareTo(b.orderIndex));
+        _byDate.putIfAbsent(targetKey, () => []).addAll(merged);
       });
       // 날짜가 바뀌었어도 nudge는 "가져온 날짜" 기준으로 판단해야 한다.
       _refreshNudge(dateKey: targetKey);
@@ -790,11 +929,34 @@ class _TodoScreenState extends State<TodoScreen> {
     if (!mounted) return;
     final s =
         '${startPicked.hour.toString().padLeft(2, '0')}:${startPicked.minute.toString().padLeft(2, '0')}';
-    final e = endPicked != null
+    var e = endPicked != null
         ? '${endPicked.hour.toString().padLeft(2, '0')}:${endPicked.minute.toString().padLeft(2, '0')}'
         : null;
-    var record =
-        await SupabaseService.createTimeRecord(todo.id!, s);
+
+    // 끝을 00:00으로 고른 건 "자정까지 했다"는 뜻 → 그 날 23:59로 닫는다.
+    // (그대로 두면 길이가 0이거나 음수라 플래너에서 사라진다)
+    if (e == '00:00' && s != '00:00') e = _kDayEnd;
+
+    // 끝이 시작보다 이르다 = 자정을 넘겼거나 오전/오후를 잘못 골랐거나.
+    // 앱이 구분할 수 없으니 물어본다.
+    var splitNeeded = false;
+    if (e != null && _crossesMidnight(s, e)) {
+      splitNeeded = await _askCrossedMidnight(s, e);
+      if (!splitNeeded) return; // '시간 다시 고르기' → 저장하지 않고 종료
+      if (!mounted) return;
+    }
+
+    var record = await SupabaseService.createTimeRecord(todo.id!, s);
+    if (splitNeeded) {
+      await _splitAtMidnight(
+          todo: todo, recordId: record.id!, endHHMM: e!);
+      if (!mounted) return;
+      setState(() => _timeRecords
+          .putIfAbsent(todo.id!, () => [])
+          .add(record.copyWith(endTime: _kDayEnd)));
+      _showSnack('자정 기준으로 나눠서 기록했어요');
+      return;
+    }
     if (e != null) {
       await SupabaseService.finishTimeRecord(record.id!, e);
       record = record.copyWith(endTime: e);
@@ -856,9 +1018,23 @@ class _TodoScreenState extends State<TodoScreen> {
 
     final s =
         '${startPicked.hour.toString().padLeft(2, '0')}:${startPicked.minute.toString().padLeft(2, '0')}';
-    final e = endPicked != null
+    var e = endPicked != null
         ? '${endPicked.hour.toString().padLeft(2, '0')}:${endPicked.minute.toString().padLeft(2, '0')}'
         : record.endTime;
+
+    // 추가할 때와 같은 규칙 — 00:00은 '자정까지'로, 끝이 더 이르면 물어본다.
+    if (e == '00:00' && s != '00:00') e = _kDayEnd;
+    if (e != null && _crossesMidnight(s, e)) {
+      final split = await _askCrossedMidnight(s, e);
+      if (!split || !mounted) return; // 안 나눌 거면 수정하지 않고 종료
+      await SupabaseService.updateTimeRecord(record.id!, s, _kDayEnd);
+      await _splitAtMidnight(
+          todo: todo, recordId: record.id!, endHHMM: e);
+      if (!mounted) return;
+      _loadTimeRecordsForDate(_selKey);
+      _showSnack('자정 기준으로 나눠서 기록했어요');
+      return;
+    }
 
     await SupabaseService.updateTimeRecord(record.id!, s, e);
     if (!mounted) return;
