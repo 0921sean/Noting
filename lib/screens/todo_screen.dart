@@ -576,13 +576,22 @@ class _TodoScreenState extends State<TodoScreen> {
     if (_timerBusy.contains(todoId)) return; // ⏹ 연타 방지 (_startTimer와 같은 이유)
     setState(() => _timerBusy.add(todoId));
 
-    final e = _nowHHMM();
+    var e = _nowHHMM();
     // 타이머는 실제로 흐른 시간이라 묻지 않고 바로 나눈다 — 23:00에 시작해
     // 01:30에 멈췄으면 자정을 넘긴 게 확실하다.
     final started = _timeRecords[todoId]
         ?.firstWhere((r) => r.id == recordId,
             orElse: () => TimeRecord(todoId: todoId, startTime: ''))
         .startTime;
+    // 정확히 00:00 분에 멈추면 "자정까지 했다"는 뜻 — 수동 입력과 똑같이 23:59로
+    // 닫는다. 그대로 두면 끝(00:00) < 시작이라 플래너가 이 기록을 그리지 않는다.
+    // 00:00에 시작해 같은 분에 멈춘 경우는 그날 기록이 맞으니 건드리지 않는다.
+    if (e == '00:00' &&
+        started != null &&
+        started.isNotEmpty &&
+        started != '00:00') {
+      e = _kDayEnd;
+    }
     final crossed =
         started != null && started.isNotEmpty && _crossesMidnight(started, e);
     try {
